@@ -856,7 +856,7 @@ model Message {
 
   sessionId String?
   session   Session? @relation(fields: [sessionId], references: [id])
-
+  time String?
   createdAt DateTime @default(now())
 
   @@index([roomId])
