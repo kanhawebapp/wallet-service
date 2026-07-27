@@ -255,6 +255,9 @@ async function startConsumer() {
 
                   razorpayOrderId: data.orderId,
                   razorpayPaymentId: data.paymentId,
+                  country:data.country,
+                  state:data.state,
+                  city:data.city,
 
                   status: "SUCCESS",
                 },
