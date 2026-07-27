@@ -804,35 +804,58 @@ model Session {
 }
 
 model Payment {
+
   id String @id @default(uuid())
 
   userId String
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields:[userId],references:[id])
 
   rechargePackId String
-  rechargePack   RechargePack @relation(fields: [rechargePackId], references: [id])
+  rechargePack RechargePack @relation(fields:[rechargePackId],references:[id])
 
-  paymentOrderId String       @unique
-  paymentOrder   PaymentOrder @relation(fields: [paymentOrderId], references: [id])
+  paymentOrderId String @unique
+  paymentOrder PaymentOrder @relation(fields:[paymentOrderId],references:[id])
 
   amount Float
-  coins  Int
+  coins Int
 
   provider PaymentProvider
 
-  razorpayOrderId   String
+  razorpayOrderId String
   razorpayPaymentId String @unique
 
   status PaymentStatus
 
+  //--------------------------------
+  invoiceNo String? @unique
+
+  taxableAmount Float?
+
+  gstRate Float?
+
+  cgst Float?
+
+  sgst Float?
+
+  igst Float?
+
+  totalTax Float?
+
+  totalAmount Float?
+
+  //--------------------------------
+
+  country String?
+  state String?
+  city String?
+
+  //--------------------------------
+
+  platform String?
+
   createdAt DateTime @default(now())
 
-  // ADD THIS
   walletTransactions WalletTransaction[]
-
-  @@index([userId])
-  @@index([status])
-  @@index([razorpayOrderId])
 }
 
 model PaymentOrder {
