@@ -42,18 +42,20 @@ const QUEUE_NAME = "payment.success";
  */
 const GST_RATE = Number(process.env.GST_RATE || 18);
 const COMPANY_STATE = process.env.COMPANY_STATE || "Delhi";
+const PG_RATE = Number(process.env.PG_RATE || 1.65);
+const PG_GST_RATE = Number(process.env.PG_GST_RATE || 18);
 
 /**
  * Calculate GST (GST Inclusive)
  */
 function calculateGST(totalAmount, customerState) {
-  console.log("totalAmount",totalAmount);
+  console.log("totalAmount", totalAmount);
   const taxableAmount = Number(
     ((totalAmount * 100) / (100 + GST_RATE)).toFixed(2),
   );
 
   const totalTax = Number((totalAmount - taxableAmount).toFixed(2));
-  console.log("totalTax",totalTax);
+  console.log("totalTax", totalTax);
 
   let cgst = 0;
   let sgst = 0;
@@ -77,6 +79,24 @@ function calculateGST(totalAmount, customerState) {
     igst,
     totalTax,
     totalAmount,
+  };
+}
+
+function calculatePGCharges(totalAmount) {
+  const pgCharge = Number((totalAmount * (PG_RATE / 100)).toFixed(2));
+
+  const pgIgst = Number((pgCharge * (PG_GST_RATE / 100)).toFixed(2));
+
+  const pgTotal = Number((pgCharge + pgIgst).toFixed(2));
+
+  const receivableAmount = Number((totalAmount - pgTotal).toFixed(2));
+
+  return {
+    pgChargeRate: PG_RATE,
+    pgCharge,
+    pgIgst,
+    pgTotal,
+    receivableAmount,
   };
 }
 
@@ -287,10 +307,10 @@ async function startConsumer() {
                */
               // Calculate GST
               const gst = calculateGST(data.amount, data.state);
-
+              const pg = calculatePGCharges(data.amount);
               // Generate Invoice Number
               const invoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}`;
-              console.log("taxableAmount---:",gst.taxableAmount);
+              console.log("taxableAmount---:", gst.taxableAmount);
               const payment = await tx.payment.create({
                 data: {
                   userId: data.userId,
@@ -298,7 +318,7 @@ async function startConsumer() {
                   paymentOrderId: paymentOrder.id,
 
                   amount: data.amount,
-                  coins: gst.taxableAmount,
+                  coins: data.coins,
 
                   provider: "RAZORPAY",
 
@@ -316,6 +336,12 @@ async function startConsumer() {
                   igst: gst.igst,
                   totalTax: gst.totalTax,
                   totalAmount: gst.totalAmount,
+
+                  pgChargeRate: pg.pgChargeRate,
+                  pgCharge: pg.pgCharge,
+                  pgIgst: pg.pgIgst,
+                  pgTotal: pg.pgTotal,
+                  receivableAmount: pg.receivableAmount,
 
                   country: data.country,
                   state: data.state,
