@@ -290,6 +290,7 @@ async function startConsumer() {
 
               // Generate Invoice Number
               const invoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}`;
+              console.log("taxableAmount---:",gst.taxableAmount);
               const payment = await tx.payment.create({
                 data: {
                   userId: data.userId,
