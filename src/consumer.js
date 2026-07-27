@@ -286,7 +286,7 @@ async function startConsumer() {
                * Create payment record
                */
               // Calculate GST
-              const gst = calculateGST(data.amount, "Delhi");
+              const gst = calculateGST(data.amount, data.state);
 
               // Generate Invoice Number
               const invoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}`;
