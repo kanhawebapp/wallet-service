@@ -47,11 +47,13 @@ const COMPANY_STATE = process.env.COMPANY_STATE || "Delhi";
  * Calculate GST (GST Inclusive)
  */
 function calculateGST(totalAmount, customerState) {
+  console.log("totalAmount",totalAmount);
   const taxableAmount = Number(
     ((totalAmount * 100) / (100 + GST_RATE)).toFixed(2),
   );
 
   const totalTax = Number((totalAmount - taxableAmount).toFixed(2));
+  console.log("totalTax",totalTax);
 
   let cgst = 0;
   let sgst = 0;
