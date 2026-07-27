@@ -37,6 +37,47 @@ let channel;
 
 const QUEUE_NAME = "payment.success";
 
+/**
+ * GST Configuration
+ */
+const GST_RATE = Number(process.env.GST_RATE || 18);
+const COMPANY_STATE = process.env.COMPANY_STATE || "Delhi";
+
+/**
+ * Calculate GST (GST Inclusive)
+ */
+function calculateGST(totalAmount, customerState) {
+  const taxableAmount = Number(
+    ((totalAmount * 100) / (100 + GST_RATE)).toFixed(2),
+  );
+
+  const totalTax = Number((totalAmount - taxableAmount).toFixed(2));
+
+  let cgst = 0;
+  let sgst = 0;
+  let igst = 0;
+
+  if (
+    customerState &&
+    customerState.trim().toLowerCase() === COMPANY_STATE.trim().toLowerCase()
+  ) {
+    cgst = Number((totalTax / 2).toFixed(2));
+    sgst = Number((totalTax / 2).toFixed(2));
+  } else {
+    igst = totalTax;
+  }
+
+  return {
+    taxableAmount,
+    gstRate: GST_RATE,
+    cgst,
+    sgst,
+    igst,
+    totalTax,
+    totalAmount,
+  };
+}
+
 async function startConsumer() {
   try {
     console.log("Connecting to RabbitMQ...");
@@ -242,6 +283,11 @@ async function startConsumer() {
               /**
                * Create payment record
                */
+              // Calculate GST
+              const gst = calculateGST(data.amount, data.state);
+
+              // Generate Invoice Number
+              const invoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}`;
               const payment = await tx.payment.create({
                 data: {
                   userId: data.userId,
@@ -255,11 +301,24 @@ async function startConsumer() {
 
                   razorpayOrderId: data.orderId,
                   razorpayPaymentId: data.paymentId,
-                  country:data.country,
-                  state:data.state,
-                  city:data.city,
 
                   status: "SUCCESS",
+
+                  invoiceNo,
+
+                  taxableAmount: gst.taxableAmount,
+                  gstRate: gst.gstRate,
+                  cgst: gst.cgst,
+                  sgst: gst.sgst,
+                  igst: gst.igst,
+                  totalTax: gst.totalTax,
+                  totalAmount: gst.totalAmount,
+
+                  country: data.country,
+                  state: data.state,
+                  city: data.city,
+
+                  platform: data.platform,
                 },
               });
 
