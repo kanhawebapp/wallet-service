@@ -298,7 +298,7 @@ async function startConsumer() {
                   paymentOrderId: paymentOrder.id,
 
                   amount: data.amount,
-                  coins: data.coins,
+                  coins: gst.taxableAmount,
 
                   provider: "RAZORPAY",
 
