@@ -479,7 +479,7 @@ async function startConsumer() {
               }
 
               console.log(
-                `SUCCESS: user=${data.userId}, coins=${data.coins}, payment=${data.paymentId}`,
+                `SUCCESSS: user=${data.userId}, coins=${data.coins}, payment=${data.paymentId}`,
               );
             },
             {
