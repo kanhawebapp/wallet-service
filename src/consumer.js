@@ -155,6 +155,7 @@ function calculatePGCharges(totalAmount) {
  * CouponRedemption.paymentOrderId
  */
 async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
+  console.log("dataaaaaaaaaaaaaaaaaaaaaaaaaaaaa",data);
   if (!data.couponCode || data.couponCode.trim() === "") {
     return;
   }
