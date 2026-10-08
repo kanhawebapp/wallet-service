@@ -506,163 +506,234 @@ async function startConsumer() {
                * =================================================
                */
 
-              if (
-                data.serviceType === "SERVICE"
-              ) {
-                /**
-                 * =================================================
-                 * FIND SERVICE PAYMENT ORDER
-                 * =================================================
-                 */
+              /**
+ * =================================================
+ * SERVICE PAYMENT
+ * =================================================
+ */
 
-                const servicePaymentOrder =
-                  await tx.servicePaymentOrder.findUnique(
-                    {
-                      where: {
-                        razorpayOrderId:
-                          data.orderId,
-                      },
-                    },
-                  );
+if (data.serviceType === "SERVICE") {
+  /**
+   * =================================================
+   * FIND SERVICE PAYMENT ORDER
+   * =================================================
+   */
 
-                if (!servicePaymentOrder) {
-                  throw new Error(
-                    `Service payment order not found: ${data.orderId}`,
-                  );
-                }
+  const servicePaymentOrder =
+    await tx.servicePaymentOrder.findUnique({
+      where: {
+        razorpayOrderId: data.orderId,
+      },
+    });
 
-                /**
-                 * =================================================
-                 * FAILED SERVICE PAYMENT
-                 * =================================================
-                 */
+  if (!servicePaymentOrder) {
+    throw new Error(
+      `Service payment order not found: ${data.orderId}`,
+    );
+  }
 
-                if (
-                  data.status === "failed"
-                ) {
-                  await tx.servicePaymentOrder.update(
-                    {
-                      where: {
-                        id: servicePaymentOrder.id,
-                      },
-                      data: {
-                        status: "FAILED",
-                      },
-                    },
-                  );
+  /**
+   * =================================================
+   * FAILED SERVICE PAYMENT
+   * =================================================
+   */
 
-                  console.log(
-                    `SERVICE PAYMENT FAILED: order=${data.orderId}`,
-                  );
+  if (data.status === "failed") {
+    await tx.servicePaymentOrder.update({
+      where: {
+        id: servicePaymentOrder.id,
+      },
+      data: {
+        status: "FAILED",
+      },
+    });
 
-                  return;
-                }
+    console.log(
+      `SERVICE PAYMENT FAILED: order=${data.orderId}`,
+    );
 
-                /**
-                 * =================================================
-                 * ONLY PROCESS CAPTURED PAYMENT
-                 * =================================================
-                 */
+    return;
+  }
 
-                if (
-                  data.status !== "captured"
-                ) {
-                  console.log(
-                    `Ignoring unsupported service payment status: ${data.status}`,
-                  );
+  /**
+   * =================================================
+   * ONLY PROCESS CAPTURED PAYMENT
+   * =================================================
+   */
 
-                  return;
-                }
+  if (data.status !== "captured") {
+    console.log(
+      `Ignoring unsupported service payment status: ${data.status}`,
+    );
 
-                /**
-                 * =================================================
-                 * PREVENT DUPLICATE PAYMENT
-                 * =================================================
-                 */
+    return;
+  }
 
-                if (
-                  servicePaymentOrder.status ===
-                  "PAID"
-                ) {
-                  console.log(
-                    `Service payment already processed: ${data.orderId}`,
-                  );
+  /**
+   * =================================================
+   * PREVENT DUPLICATE PAYMENT PROCESSING
+   * =================================================
+   */
 
-                  return;
-                }
+  if (servicePaymentOrder.status === "PAID") {
+    console.log(
+      `Service payment already processed: ${data.orderId}`,
+    );
 
-                /**
-                 * =================================================
-                 * MARK SERVICE PAYMENT PAID
-                 * =================================================
-                 */
+    return;
+  }
 
-                await tx.servicePaymentOrder.update(
-                  {
-                    where: {
-                      id: servicePaymentOrder.id,
-                    },
-                    data: {
-                      status: "PAID",
-                    },
-                  },
-                );
+  /**
+   * =================================================
+   * FIND SERVICE COUPON
+   * =================================================
+   *
+   * couponCode comes from the payment.success event.
+   *
+   * couponId in ServicePaymentOrder must contain
+   * the actual Coupon.id, NOT the coupon code.
+   */
 
-                /**
-                 * =================================================
-                 * UPDATE SERVICE BOOKING
-                 * =================================================
-                 */
+  let couponId = null;
 
-                await tx.serviceBooking.update({
-                  where: {
-                    id:
-                      servicePaymentOrder.bookingId,
-                  },
-                  data: {
-                    paymentStatus: "SUCCESS",
-                    bookingStatus: "ASSIGNED",
-                  },
-                });
+  if (
+    data.couponCode &&
+    data.couponCode.trim() !== ""
+  ) {
+    const coupon = await tx.coupon.findUnique({
+      where: {
+        code: data.couponCode.trim().toUpperCase(),
+      },
+      select: {
+        id: true,
+        code: true,
+        type: true,
+      },
+    });
 
-                /**
-                 * =================================================
-                 * SERVICE COUPON
-                 * =================================================
-                 *
-                 * Service resolver sends:
-                 *
-                 * couponCode
-                 * couponType
-                 * discount
-                 * cashback
-                 *
-                 * Therefore we use couponCode here.
-                 */
+    if (!coupon) {
+      throw new Error(
+        `Coupon not found: ${data.couponCode}`,
+      );
+    }
 
-                if (
-                  data.couponCode &&
-                  data.couponCode.trim() !== ""
-                ) {
-                  await redeemServiceCoupon(
-                    tx,
-                    data,
-                    servicePaymentOrder,
-                  );
-                }
+    couponId = coupon.id;
 
-                /**
-                 * =================================================
-                 * SERVICE SUCCESS
-                 * =================================================
-                 */
+    console.log(
+      "SERVICE COUPON FOUND:",
+      {
+        couponId: coupon.id,
+        couponCode: coupon.code,
+        couponType: coupon.type,
+      },
+    );
+  }
 
-                console.log(
-                  `SERVICE PAYMENT SUCCESS booking=${servicePaymentOrder.bookingId}, payment=${servicePaymentOrder.id}`,
-                );
+  /**
+   * =================================================
+   * NORMALIZE PAYMENT VALUES
+   * =================================================
+   */
 
-                return;
-              }
+  const totalAmount = Number(data.coins || 0);
+
+  const payableAmount = Number(data.amount || 0);
+
+  const discount = Number(data.discount || 0);
+
+  const cashback = Number(data.cashback || 0);
+
+  console.log(
+    "SERVICE PAYMENT VALUES:",
+    {
+      orderId: data.orderId,
+      paymentId: data.paymentId,
+      totalAmount,
+      payableAmount,
+      couponId,
+      discount,
+      cashback,
+    },
+  );
+
+  /**
+   * =================================================
+   * UPDATE SERVICE PAYMENT ORDER
+   * =================================================
+   *
+   * Mapping:
+   *
+   * data.coins       -> totalAmount
+   * data.amount      -> payableAmount
+   * coupon.id        -> couponId
+   * data.discount    -> discount
+   * data.cashback    -> cashback
+   * captured         -> PAID
+   */
+
+  await tx.servicePaymentOrder.update({
+    where: {
+      id: servicePaymentOrder.id,
+    },
+    data: {
+      totalAmount,
+      payableAmount,
+      couponId,
+      discount,
+      cashback,
+      status: "PAID",
+    },
+  });
+
+  console.log(
+    `SERVICE PAYMENT ORDER UPDATED: order=${data.orderId}`,
+  );
+
+  /**
+   * =================================================
+   * UPDATE SERVICE BOOKING
+   * =================================================
+   */
+
+  await tx.serviceBooking.update({
+    where: {
+      id: servicePaymentOrder.bookingId,
+    },
+    data: {
+      paymentStatus: "SUCCESS",
+      bookingStatus: "ASSIGNED",
+    },
+  });
+
+  /**
+   * =================================================
+   * SERVICE COUPON REDEMPTION
+   * =================================================
+   */
+
+  if (couponId) {
+    await redeemServiceCoupon(
+      tx,
+      data,
+      {
+        ...servicePaymentOrder,
+        couponId,
+      },
+    );
+  }
+
+  /**
+   * =================================================
+   * SERVICE SUCCESS
+   * =================================================
+   */
+
+  console.log(
+    `SERVICE PAYMENT SUCCESS: booking=${servicePaymentOrder.bookingId}, payment=${servicePaymentOrder.id}, totalAmount=${totalAmount}, payableAmount=${payableAmount}, coupon=${data.couponCode || "NONE"}, discount=${discount}, cashback=${cashback}`,
+  );
+
+  return;
+}
 
               /**
                * =================================================
