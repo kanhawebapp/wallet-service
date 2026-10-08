@@ -12,21 +12,30 @@ const { Pool } = pg;
 import { PrismaPg } from "@prisma/adapter-pg";
 
 /**
- * PostgreSQL Pool
+ * ============================================================
+ * POSTGRESQL POOL
+ * ============================================================
  */
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 10,
 });
 
 /**
- * Prisma Adapter
+ * ============================================================
+ * PRISMA ADAPTER
+ * ============================================================
  */
+
 const adapter = new PrismaPg(pool);
 
 /**
- * Prisma Client
+ * ============================================================
+ * PRISMA CLIENT
+ * ============================================================
  */
+
 const prisma = new PrismaClient({
   adapter,
   log: ["error", "warn"],
@@ -38,41 +47,70 @@ let channel;
 const QUEUE_NAME = "payment.success";
 
 /**
- * ============================
+ * ============================================================
  * CONFIGURATION
- * ============================
+ * ============================================================
  */
 
-const GST_RATE = Number(process.env.GST_RATE || 18);
+const GST_RATE = Number(
+  process.env.GST_RATE || 18,
+);
 
-const COMPANY_STATE = process.env.COMPANY_STATE || "Delhi";
+const COMPANY_STATE =
+  process.env.COMPANY_STATE || "Delhi";
 
-const PG_RATE = Number(process.env.PG_RATE || 1.65);
+const PG_RATE = Number(
+  process.env.PG_RATE || 1.65,
+);
 
-const PG_GST_RATE = Number(process.env.PG_GST_RATE || 18);
+const PG_GST_RATE = Number(
+  process.env.PG_GST_RATE || 18,
+);
 
 /**
- * ============================
+ * ============================================================
  * CALCULATE GST
- * ============================
+ * ============================================================
  *
  * Amount received from Razorpay is GST inclusive.
  */
-function calculateGST(totalAmount, customerState) {
-  console.log("GST calculation totalAmount:", totalAmount);
 
-  const numericTotalAmount = Number(totalAmount || 0);
+function calculateGST(
+  totalAmount,
+  customerState,
+) {
+  console.log(
+    "GST calculation totalAmount:",
+    totalAmount,
+  );
+
+  const numericTotalAmount = Number(
+    totalAmount || 0,
+  );
 
   const taxableAmount = Number(
-    ((numericTotalAmount * 100) / (100 + GST_RATE)).toFixed(2),
+    (
+      (numericTotalAmount * 100) /
+      (100 + GST_RATE)
+    ).toFixed(2),
   );
 
   const totalTax = Number(
-    (numericTotalAmount - taxableAmount).toFixed(2),
+    (
+      numericTotalAmount -
+      taxableAmount
+    ).toFixed(2),
   );
 
-  console.log("GST taxableAmount:", taxableAmount);
-  console.log("GST totalTax:", totalTax);
+  console.log(
+    "GST taxableAmount:",
+    taxableAmount,
+  );
+
+  console.log(
+    "GST totalTax:",
+    totalTax,
+  );
 
   let cgst = 0;
   let sgst = 0;
@@ -83,8 +121,13 @@ function calculateGST(totalAmount, customerState) {
     customerState.trim().toLowerCase() ===
       COMPANY_STATE.trim().toLowerCase()
   ) {
-    cgst = Number((totalTax / 2).toFixed(2));
-    sgst = Number((totalTax / 2).toFixed(2));
+    cgst = Number(
+      (totalTax / 2).toFixed(2),
+    );
+
+    sgst = Number(
+      (totalTax / 2).toFixed(2),
+    );
   } else {
     igst = totalTax;
   }
@@ -101,21 +144,28 @@ function calculateGST(totalAmount, customerState) {
 }
 
 /**
- * ============================
- * CALCULATE PAYMENT GATEWAY
- * CHARGES
- * ============================
+ * ============================================================
+ * CALCULATE PAYMENT GATEWAY CHARGES
+ * ============================================================
  */
 
 function calculatePGCharges(totalAmount) {
-  const numericTotalAmount = Number(totalAmount || 0);
+  const numericTotalAmount = Number(
+    totalAmount || 0,
+  );
 
   const pgCharge = Number(
-    (numericTotalAmount * (PG_RATE / 100)).toFixed(2),
+    (
+      numericTotalAmount *
+      (PG_RATE / 100)
+    ).toFixed(2),
   );
 
   const pgIgst = Number(
-    (pgCharge * (PG_GST_RATE / 100)).toFixed(2),
+    (
+      pgCharge *
+      (PG_GST_RATE / 100)
+    ).toFixed(2),
   );
 
   const pgTotal = Number(
@@ -123,7 +173,10 @@ function calculatePGCharges(totalAmount) {
   );
 
   const receivableAmount = Number(
-    (numericTotalAmount - pgTotal).toFixed(2),
+    (
+      numericTotalAmount -
+      pgTotal
+    ).toFixed(2),
   );
 
   return {
@@ -136,17 +189,9 @@ function calculatePGCharges(totalAmount) {
 }
 
 /**
- * ============================
+ * ============================================================
  * SERVICE COUPON REDEMPTION
- * ============================
- *
- * IMPORTANT:
- *
- * Service bookings use ServicePaymentOrder.
- *
- * Recharge uses PaymentOrder.
- *
- * Therefore:
+ * ============================================================
  *
  * SERVICE:
  * CouponRedemption.servicePaymentOrderId
@@ -154,31 +199,49 @@ function calculatePGCharges(totalAmount) {
  * RECHARGE:
  * CouponRedemption.paymentOrderId
  */
-async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
-  console.log("dataaaaaaaaaaaaaaaaaaaaaaaaaaaaa",data);
-  if (!data.couponCode || data.couponCode.trim() === "") {
+
+async function redeemServiceCoupon(
+  tx,
+  data,
+  servicePaymentOrder,
+) {
+  console.log(
+    "Service coupon redemption data:",
+    data,
+  );
+
+  if (
+    !data.couponCode ||
+    data.couponCode.trim() === ""
+  ) {
     return;
   }
 
-  console.log("Processing SERVICE coupon redemption:", {
-    couponCode: data.couponCode,
-    couponType: data.couponType,
-    userId: data.userId,
-    discount: data.discount,
-    cashback: data.cashback,
-  });
+  console.log(
+    "Processing SERVICE coupon redemption:",
+    {
+      couponCode: data.couponCode,
+      couponType: data.couponType,
+      userId: data.userId,
+      discount: data.discount,
+      cashback: data.cashback,
+    },
+  );
 
   /**
-   * ============================
+   * ============================================================
    * FIND COUPON
-   * ============================
+   * ============================================================
    */
 
-  const coupon = await tx.coupon.findUnique({
-    where: {
-      code: data.couponCode.trim().toUpperCase(),
-    },
-  });
+  const coupon =
+    await tx.coupon.findUnique({
+      where: {
+        code: data.couponCode
+          .trim()
+          .toUpperCase(),
+      },
+    });
 
   if (!coupon) {
     throw new Error(
@@ -187,9 +250,9 @@ async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
   }
 
   /**
-   * ============================
+   * ============================================================
    * CHECK USER REDEMPTION
-   * ============================
+   * ============================================================
    */
 
   const existingRedemption =
@@ -201,15 +264,17 @@ async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
     });
 
   if (existingRedemption) {
-    throw new Error(
-      `Coupon ${coupon.code} has already been redeemed by this user`,
+    console.log(
+      `SERVICE COUPON ALREADY REDEEMED: coupon=${coupon.code}, user=${data.userId}`,
     );
+
+    return;
   }
 
   /**
-   * ============================
+   * ============================================================
    * CHECK GLOBAL COUPON LIMIT
-   * ============================
+   * ============================================================
    */
 
   if (
@@ -224,40 +289,37 @@ async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
   }
 
   /**
-   * ============================
+   * ============================================================
    * CREATE SERVICE REDEMPTION
-   * ============================
-   *
-   * DO NOT use:
-   *
-   * paymentOrderId: servicePaymentOrder.id
-   *
-   * because this is NOT a PaymentOrder.
-   *
-   * Service payment goes into:
-   *
-   * servicePaymentOrderId
+   * ============================================================
    */
 
   await tx.couponRedemption.create({
-  data: {
-    couponId: coupon.id,
-    userId: data.userId,
-    servicePaymentOrderId: servicePaymentOrder.id,
-    discount: Number(data.discount || 0),
-  },
-});
+    data: {
+      couponId: coupon.id,
+
+      userId: data.userId,
+
+      servicePaymentOrderId:
+        servicePaymentOrder.id,
+
+      discount: Number(
+        data.discount || 0,
+      ),
+    },
+  });
 
   /**
-   * ============================
+   * ============================================================
    * INCREMENT COUPON USAGE
-   * ============================
+   * ============================================================
    */
 
   await tx.coupon.update({
     where: {
       id: coupon.id,
     },
+
     data: {
       usedCount: {
         increment: 1,
@@ -271,41 +333,52 @@ async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
 }
 
 /**
- * ============================
+ * ============================================================
  * RECHARGE COUPON REDEMPTION
- * ============================
+ * ============================================================
  *
- * Recharge coupons are stored directly
- * inside PaymentOrder.couponId.
+ * Recharge coupon is stored in:
+ *
+ * PaymentOrder.couponId
  */
-async function redeemRechargeCoupon(tx, data, paymentOrder) {
+
+async function redeemRechargeCoupon(
+  tx,
+  data,
+  paymentOrder,
+) {
   /**
    * No coupon applied
    */
+
   if (!paymentOrder.couponId) {
     return;
   }
 
-  console.log("Processing RECHARGE coupon redemption:", {
-    couponId: paymentOrder.couponId,
-    couponCode: data.couponCode,
-    couponType: data.couponType,
-    userId: data.userId,
-    discount: data.discount,
-    cashback: data.cashback,
-  });
+  console.log(
+    "Processing RECHARGE coupon redemption:",
+    {
+      couponId: paymentOrder.couponId,
+      couponCode: data.couponCode,
+      couponType: data.couponType,
+      userId: data.userId,
+      discount: data.discount,
+      cashback: data.cashback,
+    },
+  );
 
   /**
-   * ============================
+   * ============================================================
    * FIND COUPON
-   * ============================
+   * ============================================================
    */
 
-  const coupon = await tx.coupon.findUnique({
-    where: {
-      id: paymentOrder.couponId,
-    },
-  });
+  const coupon =
+    await tx.coupon.findUnique({
+      where: {
+        id: paymentOrder.couponId,
+      },
+    });
 
   if (!coupon) {
     throw new Error(
@@ -314,9 +387,9 @@ async function redeemRechargeCoupon(tx, data, paymentOrder) {
   }
 
   /**
-   * ============================
+   * ============================================================
    * CHECK USER REDEMPTION
-   * ============================
+   * ============================================================
    */
 
   const existingRedemption =
@@ -327,24 +400,18 @@ async function redeemRechargeCoupon(tx, data, paymentOrder) {
       },
     });
 
-  /**
-   * If already redeemed, do not create again.
-   *
-   * This makes the RabbitMQ consumer idempotent
-   * for coupon redemption.
-   */
   if (existingRedemption) {
     console.log(
-      `COUPON ALREADY REDEEMED: coupon=${coupon.code}, couponId=${coupon.id}, user=${data.userId}`,
+      `RECHARGE COUPON ALREADY REDEEMED: coupon=${coupon.code}, couponId=${coupon.id}, user=${data.userId}`,
     );
 
     return;
   }
 
   /**
-   * ============================
+   * ============================================================
    * CHECK GLOBAL LIMIT
-   * ============================
+   * ============================================================
    */
 
   if (
@@ -359,30 +426,37 @@ async function redeemRechargeCoupon(tx, data, paymentOrder) {
   }
 
   /**
-   * ============================
+   * ============================================================
    * CREATE RECHARGE REDEMPTION
-   * ============================
+   * ============================================================
    */
 
   await tx.couponRedemption.create({
-  data: {
-    couponId: paymentOrder.couponId,
-    userId: data.userId,
-    paymentOrderId: paymentOrder.id,
-    discount: Number(data.discount || 0),
-  },
-});
+    data: {
+      couponId: paymentOrder.couponId,
+
+      userId: data.userId,
+
+      paymentOrderId:
+        paymentOrder.id,
+
+      discount: Number(
+        data.discount || 0,
+      ),
+    },
+  });
 
   /**
-   * ============================
+   * ============================================================
    * INCREMENT COUPON USAGE
-   * ============================
+   * ============================================================
    */
 
   await tx.coupon.update({
     where: {
       id: coupon.id,
     },
+
     data: {
       usedCount: {
         increment: 1,
@@ -396,50 +470,246 @@ async function redeemRechargeCoupon(tx, data, paymentOrder) {
 }
 
 /**
- * ============================
+ * ============================================================
+ * CREDIT CASHBACK TO USER WALLET
+ * ============================================================
+ *
+ * Used by:
+ *
+ * 1. RECHARGE CASHBACK
+ * 2. SERVICE CASHBACK
+ *
+ * Recharge:
+ *
+ * paymentId -> WalletTransaction.paymentId
+ *
+ * Service:
+ *
+ * servicePaymentOrderId ->
+ * WalletTransaction.servicePaymentOrderId
+ */
+
+async function creditCashback(
+  tx,
+  {
+    userId,
+    cashbackAmount,
+    paymentId = null,
+    servicePaymentOrderId = null,
+    rechargePackId = null,
+    couponCode = null,
+  },
+) {
+  const amount = Number(
+    cashbackAmount || 0,
+  );
+
+  /**
+   * ============================================================
+   * NO CASHBACK
+   * ============================================================
+   */
+
+  if (amount <= 0) {
+    console.log(
+      `No cashback to credit: user=${userId}, amount=${amount}`,
+    );
+
+    return;
+  }
+
+  console.log(
+    "Processing cashback:",
+    {
+      userId,
+      amount,
+      paymentId,
+      servicePaymentOrderId,
+      rechargePackId,
+      couponCode,
+    },
+  );
+
+  /**
+   * ============================================================
+   * CHECK DUPLICATE CASHBACK
+   * ============================================================
+   */
+
+  let cashbackExists = null;
+
+  /**
+   * RECHARGE
+   */
+
+  if (paymentId) {
+    cashbackExists =
+      await tx.walletTransaction.findFirst({
+        where: {
+          paymentId,
+          type: "CASHBACK",
+        },
+      });
+  }
+
+  /**
+   * SERVICE
+   */
+
+  if (
+    !cashbackExists &&
+    servicePaymentOrderId
+  ) {
+    cashbackExists =
+      await tx.walletTransaction.findFirst({
+        where: {
+          servicePaymentOrderId,
+          type: "CASHBACK",
+        },
+      });
+  }
+
+  if (cashbackExists) {
+    console.log(
+      `CASHBACK ALREADY CREDITED: user=${userId}, amount=${amount}`,
+    );
+
+    return;
+  }
+
+  /**
+   * ============================================================
+   * GET / CREATE USER WALLET
+   * ============================================================
+   */
+
+  const wallet =
+    await tx.userWallet.upsert({
+      where: {
+        userId,
+      },
+
+      update: {},
+
+      create: {
+        userId,
+
+        balanceCoins: 0,
+
+        lockedCoins: 0,
+      },
+    });
+
+  /**
+   * ============================================================
+   * CREDIT CASHBACK
+   * ============================================================
+   */
+
+  await tx.userWallet.update({
+    where: {
+      id: wallet.id,
+    },
+
+    data: {
+      balanceCoins: {
+        increment: amount,
+      },
+    },
+  });
+
+  /**
+   * ============================================================
+   * CREATE CASHBACK TRANSACTION
+   * ============================================================
+   */
+
+  await tx.walletTransaction.create({
+    data: {
+      userWalletId: wallet.id,
+
+      paymentId,
+
+      servicePaymentOrderId,
+
+      rechargePackId,
+
+      type: "CASHBACK",
+
+      coins: amount,
+
+      amount: 0,
+
+      description:
+        `Cashback (${couponCode || "Coupon"})`,
+    },
+  });
+
+  console.log(
+    `CASHBACK CREDITED SUCCESSFULLY: user=${userId}, amount=${amount}, coupon=${couponCode || "NONE"}, paymentId=${paymentId || "NONE"}, servicePaymentOrderId=${servicePaymentOrderId || "NONE"}`,
+  );
+}
+
+/**
+ * ============================================================
  * START CONSUMER
- * ============================
+ * ============================================================
  */
 
 async function startConsumer() {
   try {
-    console.log("Connecting to RabbitMQ...");
+    console.log(
+      "Connecting to RabbitMQ...",
+    );
 
     connection = await amqp.connect(
       process.env.RABBITMQ_URL,
     );
 
-    connection.on("error", (err) => {
-      console.error(
-        "RabbitMQ connection error:",
-        err.message,
-      );
-    });
+    connection.on(
+      "error",
+      (err) => {
+        console.error(
+          "RabbitMQ connection error:",
+          err.message,
+        );
+      },
+    );
 
-    connection.on("close", () => {
-      console.warn(
-        "RabbitMQ connection closed. Reconnecting...",
-      );
+    connection.on(
+      "close",
+      () => {
+        console.warn(
+          "RabbitMQ connection closed. Reconnecting...",
+        );
 
-      setTimeout(startConsumer, 5000);
-    });
+        setTimeout(
+          startConsumer,
+          5000,
+        );
+      },
+    );
 
-    channel = await connection.createChannel();
+    channel =
+      await connection.createChannel();
 
     /**
-     * ============================
+     * ============================================================
      * ENSURE QUEUE EXISTS
-     * ============================
+     * ============================================================
      */
 
-    await channel.assertQueue(QUEUE_NAME, {
-      durable: true,
-    });
+    await channel.assertQueue(
+      QUEUE_NAME,
+      {
+        durable: true,
+      },
+    );
 
     /**
-     * ============================
+     * ============================================================
      * PREVENT PARALLEL PROCESSING
-     * ============================
+     * ============================================================
      */
 
     channel.prefetch(1);
@@ -449,22 +719,25 @@ async function startConsumer() {
     );
 
     /**
-     * ============================
+     * ============================================================
      * CONSUME PAYMENT MESSAGE
-     * ============================
+     * ============================================================
      */
 
     channel.consume(
       QUEUE_NAME,
+
       async (msg) => {
-        if (!msg) return;
+        if (!msg) {
+          return;
+        }
 
         let data;
 
         /**
-         * ============================
-         * PARSE RABBITMQ MESSAGE
-         * ============================
+         * ============================================================
+         * PARSE MESSAGE
+         * ============================================================
          */
 
         try {
@@ -493,264 +766,362 @@ async function startConsumer() {
 
         try {
           /**
-           * ============================
+           * ============================================================
            * PRISMA TRANSACTION
-           * ============================
+           * ============================================================
            */
 
           await prisma.$transaction(
             async (tx) => {
               /**
-               * =================================================
+               * ========================================================
                * SERVICE PAYMENT
-               * =================================================
+               * ========================================================
                */
 
+              if (
+                data.serviceType ===
+                "SERVICE"
+              ) {
+                /**
+                 * ======================================================
+                 * FIND SERVICE PAYMENT ORDER
+                 * ======================================================
+                 */
+
+                const servicePaymentOrder =
+                  await tx.servicePaymentOrder.findUnique(
+                    {
+                      where: {
+                        razorpayOrderId:
+                          data.orderId,
+                      },
+                    },
+                  );
+
+                if (
+                  !servicePaymentOrder
+                ) {
+                  throw new Error(
+                    `Service payment order not found: ${data.orderId}`,
+                  );
+                }
+
+                /**
+                 * ======================================================
+                 * FAILED SERVICE PAYMENT
+                 * ======================================================
+                 */
+
+                if (
+                  data.status ===
+                  "failed"
+                ) {
+                  await tx.servicePaymentOrder.update(
+                    {
+                      where: {
+                        id: servicePaymentOrder.id,
+                      },
+
+                      data: {
+                        status: "FAILED",
+                      },
+                    },
+                  );
+
+                  console.log(
+                    `SERVICE PAYMENT FAILED: order=${data.orderId}`,
+                  );
+
+                  return;
+                }
+
+                /**
+                 * ======================================================
+                 * ONLY PROCESS CAPTURED PAYMENT
+                 * ======================================================
+                 */
+
+                if (
+                  data.status !==
+                  "captured"
+                ) {
+                  console.log(
+                    `Ignoring unsupported service payment status: ${data.status}`,
+                  );
+
+                  return;
+                }
+
+                /**
+                 * ======================================================
+                 * PREVENT DUPLICATE SERVICE PAYMENT
+                 * ======================================================
+                 */
+
+                if (
+                  servicePaymentOrder.status ===
+                  "PAID"
+                ) {
+                  console.log(
+                    `Service payment already processed: ${data.orderId}`,
+                  );
+
+                  return;
+                }
+
+                /**
+                 * ======================================================
+                 * FIND SERVICE COUPON
+                 * ======================================================
+                 */
+
+                let couponId =
+                  null;
+
+                if (
+                  data.couponCode &&
+                  data.couponCode.trim() !==
+                    ""
+                ) {
+                  const coupon =
+                    await tx.coupon.findUnique(
+                      {
+                        where: {
+                          code: data.couponCode
+                            .trim()
+                            .toUpperCase(),
+                        },
+
+                        select: {
+                          id: true,
+                          code: true,
+                          type: true,
+                        },
+                      },
+                    );
+
+                  if (!coupon) {
+                    throw new Error(
+                      `Coupon not found: ${data.couponCode}`,
+                    );
+                  }
+
+                  couponId = coupon.id;
+
+                  console.log(
+                    "SERVICE COUPON FOUND:",
+                    {
+                      couponId:
+                        coupon.id,
+
+                      couponCode:
+                        coupon.code,
+
+                      couponType:
+                        coupon.type,
+                    },
+                  );
+                }
+
+                /**
+                 * ======================================================
+                 * NORMALIZE SERVICE PAYMENT VALUES
+                 * ======================================================
+                 */
+
+                const totalAmount =
+                  Number(
+                    data.coins || 0,
+                  );
+
+                const payableAmount =
+                  Number(
+                    data.amount || 0,
+                  );
+
+                const discount =
+                  Number(
+                    data.discount || 0,
+                  );
+
+                const cashback =
+                  Number(
+                    data.cashback || 0,
+                  );
+
+                console.log(
+                  "SERVICE PAYMENT VALUES:",
+                  {
+                    orderId:
+                      data.orderId,
+
+                    paymentId:
+                      data.paymentId,
+
+                    totalAmount,
+
+                    payableAmount,
+
+                    couponId,
+
+                    discount,
+
+                    cashback,
+                  },
+                );
+
+                /**
+                 * ======================================================
+                 * UPDATE SERVICE PAYMENT ORDER
+                 * ======================================================
+                 */
+
+                await tx.servicePaymentOrder.update(
+                  {
+                    where: {
+                      id: servicePaymentOrder.id,
+                    },
+
+                    data: {
+                      totalAmount,
+
+                      payableAmount,
+
+                      couponId,
+
+                      discount,
+
+                      cashback,
+
+                      status: "PAID",
+                    },
+                  },
+                );
+
+                console.log(
+                  `SERVICE PAYMENT ORDER UPDATED: order=${data.orderId}`,
+                );
+
+                /**
+                 * ======================================================
+                 * UPDATE SERVICE BOOKING
+                 * ======================================================
+                 */
+
+                await tx.serviceBooking.update(
+                  {
+                    where: {
+                      id: servicePaymentOrder.bookingId,
+                    },
+
+                    data: {
+                      paymentStatus:
+                        "SUCCESS",
+
+                      bookingStatus:
+                        "ASSIGNED",
+                    },
+                  },
+                );
+
+                /**
+                 * ======================================================
+                 * SERVICE COUPON REDEMPTION
+                 * ======================================================
+                 */
+
+                if (couponId) {
+                  await redeemServiceCoupon(
+                    tx,
+                    data,
+                    {
+                      ...servicePaymentOrder,
+
+                      couponId,
+                    },
+                  );
+                }
+
+                /**
+                 * ======================================================
+                 * SERVICE CASHBACK
+                 * ======================================================
+                 *
+                 * IMPORTANT:
+                 *
+                 * Service cashback is actual wallet
+                 * credit.
+                 */
+
+                if (
+                  data.couponType ===
+                    "CASHBACK" &&
+                  cashback > 0
+                ) {
+                  await creditCashback(
+                    tx,
+                    {
+                      userId:
+                        data.userId,
+
+                      cashbackAmount:
+                        cashback,
+
+                      paymentId: null,
+
+                      servicePaymentOrderId:
+                        servicePaymentOrder.id,
+
+                      rechargePackId:
+                        null,
+
+                      couponCode:
+                        data.couponCode ||
+                        null,
+                    },
+                  );
+                }
+
+                /**
+                 * ======================================================
+                 * SERVICE DISCOUNT TRANSACTION
+                 * ======================================================
+                 *
+                 * Discount is NOT added to wallet.
+                 *
+                 * It is only recorded against
+                 * ServicePaymentOrder / CouponRedemption.
+                 */
+
+                /**
+                 * ======================================================
+                 * SERVICE SUCCESS
+                 * ======================================================
+                 */
+
+                console.log(
+                  `SERVICE PAYMENT SUCCESS: booking=${servicePaymentOrder.bookingId}, payment=${servicePaymentOrder.id}, totalAmount=${totalAmount}, payableAmount=${payableAmount}, coupon=${data.couponCode || "NONE"}, discount=${discount}, cashback=${cashback}`,
+                );
+
+                return;
+              }
+
               /**
- * =================================================
- * SERVICE PAYMENT
- * =================================================
- */
-
-if (data.serviceType === "SERVICE") {
-  /**
-   * =================================================
-   * FIND SERVICE PAYMENT ORDER
-   * =================================================
-   */
-
-  const servicePaymentOrder =
-    await tx.servicePaymentOrder.findUnique({
-      where: {
-        razorpayOrderId: data.orderId,
-      },
-    });
-
-  if (!servicePaymentOrder) {
-    throw new Error(
-      `Service payment order not found: ${data.orderId}`,
-    );
-  }
-
-  /**
-   * =================================================
-   * FAILED SERVICE PAYMENT
-   * =================================================
-   */
-
-  if (data.status === "failed") {
-    await tx.servicePaymentOrder.update({
-      where: {
-        id: servicePaymentOrder.id,
-      },
-      data: {
-        status: "FAILED",
-      },
-    });
-
-    console.log(
-      `SERVICE PAYMENT FAILED: order=${data.orderId}`,
-    );
-
-    return;
-  }
-
-  /**
-   * =================================================
-   * ONLY PROCESS CAPTURED PAYMENT
-   * =================================================
-   */
-
-  if (data.status !== "captured") {
-    console.log(
-      `Ignoring unsupported service payment status: ${data.status}`,
-    );
-
-    return;
-  }
-
-  /**
-   * =================================================
-   * PREVENT DUPLICATE PAYMENT PROCESSING
-   * =================================================
-   */
-
-  if (servicePaymentOrder.status === "PAID") {
-    console.log(
-      `Service payment already processed: ${data.orderId}`,
-    );
-
-    return;
-  }
-
-  /**
-   * =================================================
-   * FIND SERVICE COUPON
-   * =================================================
-   *
-   * couponCode comes from the payment.success event.
-   *
-   * couponId in ServicePaymentOrder must contain
-   * the actual Coupon.id, NOT the coupon code.
-   */
-
-  let couponId = null;
-
-  if (
-    data.couponCode &&
-    data.couponCode.trim() !== ""
-  ) {
-    const coupon = await tx.coupon.findUnique({
-      where: {
-        code: data.couponCode.trim().toUpperCase(),
-      },
-      select: {
-        id: true,
-        code: true,
-        type: true,
-      },
-    });
-
-    if (!coupon) {
-      throw new Error(
-        `Coupon not found: ${data.couponCode}`,
-      );
-    }
-
-    couponId = coupon.id;
-
-    console.log(
-      "SERVICE COUPON FOUND:",
-      {
-        couponId: coupon.id,
-        couponCode: coupon.code,
-        couponType: coupon.type,
-      },
-    );
-  }
-
-  /**
-   * =================================================
-   * NORMALIZE PAYMENT VALUES
-   * =================================================
-   */
-
-  const totalAmount = Number(data.coins || 0);
-
-  const payableAmount = Number(data.amount || 0);
-
-  const discount = Number(data.discount || 0);
-
-  const cashback = Number(data.cashback || 0);
-
-  console.log(
-    "SERVICE PAYMENT VALUES:",
-    {
-      orderId: data.orderId,
-      paymentId: data.paymentId,
-      totalAmount,
-      payableAmount,
-      couponId,
-      discount,
-      cashback,
-    },
-  );
-
-  /**
-   * =================================================
-   * UPDATE SERVICE PAYMENT ORDER
-   * =================================================
-   *
-   * Mapping:
-   *
-   * data.coins       -> totalAmount
-   * data.amount      -> payableAmount
-   * coupon.id        -> couponId
-   * data.discount    -> discount
-   * data.cashback    -> cashback
-   * captured         -> PAID
-   */
-
-  await tx.servicePaymentOrder.update({
-    where: {
-      id: servicePaymentOrder.id,
-    },
-    data: {
-      totalAmount,
-      payableAmount,
-      couponId,
-      discount,
-      cashback,
-      status: "PAID",
-    },
-  });
-
-  console.log(
-    `SERVICE PAYMENT ORDER UPDATED: order=${data.orderId}`,
-  );
-
-  /**
-   * =================================================
-   * UPDATE SERVICE BOOKING
-   * =================================================
-   */
-
-  await tx.serviceBooking.update({
-    where: {
-      id: servicePaymentOrder.bookingId,
-    },
-    data: {
-      paymentStatus: "SUCCESS",
-      bookingStatus: "ASSIGNED",
-    },
-  });
-
-  /**
-   * =================================================
-   * SERVICE COUPON REDEMPTION
-   * =================================================
-   */
-
-  if (couponId) {
-    await redeemServiceCoupon(
-      tx,
-      data,
-      {
-        ...servicePaymentOrder,
-        couponId,
-      },
-    );
-  }
-
-  /**
-   * =================================================
-   * SERVICE SUCCESS
-   * =================================================
-   */
-
-  console.log(
-    `SERVICE PAYMENT SUCCESS: booking=${servicePaymentOrder.bookingId}, payment=${servicePaymentOrder.id}, totalAmount=${totalAmount}, payableAmount=${payableAmount}, coupon=${data.couponCode || "NONE"}, discount=${discount}, cashback=${cashback}`,
-  );
-
-  return;
-}
-
-              /**
-               * =================================================
+               * ========================================================
                * RECHARGE / NORMAL WALLET PAYMENT
-               * =================================================
-               *
-               * Any payment which is NOT SERVICE
-               * is treated as recharge.
+               * ========================================================
                */
 
               const paymentOrder =
-                await tx.paymentOrder.findUnique({
-                  where: {
-                    razorpayOrderId:
-                      data.orderId,
+                await tx.paymentOrder.findUnique(
+                  {
+                    where: {
+                      razorpayOrderId:
+                        data.orderId,
+                    },
                   },
-                });
+                );
 
               if (!paymentOrder) {
                 throw new Error(
@@ -759,22 +1130,26 @@ if (data.serviceType === "SERVICE") {
               }
 
               /**
-               * =================================================
+               * ======================================================
                * FAILED PAYMENT
-               * =================================================
+               * ======================================================
                */
 
               if (
-                data.status === "failed"
+                data.status ===
+                "failed"
               ) {
-                await tx.paymentOrder.update({
-                  where: {
-                    id: paymentOrder.id,
+                await tx.paymentOrder.update(
+                  {
+                    where: {
+                      id: paymentOrder.id,
+                    },
+
+                    data: {
+                      status: "FAILED",
+                    },
                   },
-                  data: {
-                    status: "FAILED",
-                  },
-                });
+                );
 
                 console.log(
                   `FAILED PAYMENT: order=${data.orderId}, payment=${data.paymentId}`,
@@ -784,13 +1159,14 @@ if (data.serviceType === "SERVICE") {
               }
 
               /**
-               * =================================================
+               * ======================================================
                * ONLY HANDLE CAPTURED
-               * =================================================
+               * ======================================================
                */
 
               if (
-                data.status !== "captured"
+                data.status !==
+                "captured"
               ) {
                 console.log(
                   `Ignoring unsupported payment status: ${data.status}`,
@@ -800,18 +1176,20 @@ if (data.serviceType === "SERVICE") {
               }
 
               /**
-               * =================================================
+               * ======================================================
                * PREVENT DUPLICATE PAYMENT PROCESSING
-               * =================================================
+               * ======================================================
                */
 
               const existingPayment =
-                await tx.payment.findUnique({
-                  where: {
-                    razorpayPaymentId:
-                      data.paymentId,
+                await tx.payment.findUnique(
+                  {
+                    where: {
+                      razorpayPaymentId:
+                        data.paymentId,
+                    },
                   },
-                });
+                );
 
               if (existingPayment) {
                 console.log(
@@ -822,24 +1200,27 @@ if (data.serviceType === "SERVICE") {
               }
 
               /**
-               * =================================================
+               * ======================================================
                * UPDATE PAYMENT ORDER
-               * =================================================
+               * ======================================================
                */
 
-              await tx.paymentOrder.update({
-                where: {
-                  id: paymentOrder.id,
+              await tx.paymentOrder.update(
+                {
+                  where: {
+                    id: paymentOrder.id,
+                  },
+
+                  data: {
+                    status: "PAID",
+                  },
                 },
-                data: {
-                  status: "PAID",
-                },
-              });
+              );
 
               /**
-               * =================================================
+               * ======================================================
                * CALCULATE GST
-               * =================================================
+               * ======================================================
                */
 
               const gst =
@@ -849,9 +1230,9 @@ if (data.serviceType === "SERVICE") {
                 );
 
               /**
-               * =================================================
+               * ======================================================
                * CALCULATE PG CHARGES
-               * =================================================
+               * ======================================================
                */
 
               const pg =
@@ -860,9 +1241,9 @@ if (data.serviceType === "SERVICE") {
                 );
 
               /**
-               * =================================================
+               * ======================================================
                * GENERATE INVOICE NUMBER
-               * =================================================
+               * ======================================================
                */
 
               const invoiceNo =
@@ -874,9 +1255,9 @@ if (data.serviceType === "SERVICE") {
               );
 
               /**
-               * =================================================
+               * ======================================================
                * CREATE PAYMENT RECORD
-               * =================================================
+               * ======================================================
                */
 
               const payment =
@@ -962,19 +1343,9 @@ if (data.serviceType === "SERVICE") {
                 });
 
               /**
-               * =================================================
+               * ======================================================
                * RECHARGE COUPON REDEMPTION
-               * =================================================
-               *
-               * IMPORTANT:
-               *
-               * We use paymentOrder.couponId.
-               *
-               * NOT data.couponId.
-               *
-               * Because createOrder already stores:
-               *
-               * couponId: coupon?.id || null
+               * ======================================================
                */
 
               await redeemRechargeCoupon(
@@ -984,45 +1355,13 @@ if (data.serviceType === "SERVICE") {
               );
 
               /**
-               * =================================================
-               * WALLET CREDIT
-               * =================================================
+               * ======================================================
+               * CHECK DUPLICATE RECHARGE CREDIT
+               * ======================================================
                *
-               * Only recharge coins are credited here.
-               */
-
-              const totalCoins =
-                Number(data.coins || 0);
-
-              const wallet =
-                await tx.userWallet.upsert({
-                  where: {
-                    userId:
-                      data.userId,
-                  },
-
-                  update: {
-                    balanceCoins: {
-                      increment:
-                        totalCoins,
-                    },
-                  },
-
-                  create: {
-                    userId:
-                      data.userId,
-
-                    balanceCoins:
-                      totalCoins,
-
-                    lockedCoins: 0,
-                  },
-                });
-
-              /**
-               * =================================================
-               * PREVENT DUPLICATE WALLET TX
-               * =================================================
+               * IMPORTANT:
+               *
+               * Do this BEFORE incrementing wallet balance.
                */
 
               const existingWalletTx =
@@ -1040,47 +1379,87 @@ if (data.serviceType === "SERVICE") {
 
               if (existingWalletTx) {
                 console.log(
-                  `Wallet transaction already exists for payment=${payment.id}`,
+                  `Wallet credit already exists for payment=${payment.id}`,
                 );
 
                 return;
               }
 
               /**
-               * =================================================
-               * CREATE CREDIT TRANSACTION
-               * =================================================
+               * ======================================================
+               * RECHARGE WALLET CREDIT
+               * ======================================================
                */
 
-              await tx.walletTransaction.create({
-                data: {
-                  userWalletId:
-                    wallet.id,
+              const totalCoins =
+                Number(
+                  data.coins || 0,
+                );
 
-                  rechargePackId:
-                    data.rechargePackId,
+              const wallet =
+                await tx.userWallet.upsert(
+                  {
+                    where: {
+                      userId:
+                        data.userId,
+                    },
 
-                  paymentId:
-                    payment.id,
+                    update: {
+                      balanceCoins: {
+                        increment:
+                          totalCoins,
+                      },
+                    },
 
-                  type:
-                    "CREDIT",
+                    create: {
+                      userId:
+                        data.userId,
 
-                  coins:
-                    totalCoins,
+                      balanceCoins:
+                        totalCoins,
 
-                  amount:
-                    data.amount,
-
-                  description:
-                    "Recharge successful",
-                },
-              });
+                      lockedCoins: 0,
+                    },
+                  },
+                );
 
               /**
-               * =================================================
-               * CASHBACK
-               * =================================================
+               * ======================================================
+               * CREATE RECHARGE CREDIT TRANSACTION
+               * ======================================================
+               */
+
+              await tx.walletTransaction.create(
+                {
+                  data: {
+                    userWalletId:
+                      wallet.id,
+
+                    rechargePackId:
+                      data.rechargePackId,
+
+                    paymentId:
+                      payment.id,
+
+                    type:
+                      "CREDIT",
+
+                    coins:
+                      totalCoins,
+
+                    amount:
+                      data.amount,
+
+                    description:
+                      "Recharge successful",
+                  },
+                },
+              );
+
+              /**
+               * ======================================================
+               * RECHARGE CASHBACK
+               * ======================================================
                */
 
               if (
@@ -1090,81 +1469,42 @@ if (data.serviceType === "SERVICE") {
                   data.cashback || 0,
                 ) > 0
               ) {
-                const cashbackExists =
-                  await tx.walletTransaction.findFirst(
-                    {
-                      where: {
-                        paymentId:
-                          payment.id,
+                await creditCashback(
+                  tx,
+                  {
+                    userId:
+                      data.userId,
 
-                        type:
-                          "CASHBACK",
-                      },
-                    },
-                  );
+                    cashbackAmount:
+                      Number(
+                        data.cashback ||
+                          0,
+                      ),
 
-                if (!cashbackExists) {
-                  const cashbackAmount =
-                    Number(
-                      data.cashback || 0,
-                    );
+                    paymentId:
+                      payment.id,
 
-                  /**
-                   * Credit cashback
-                   */
+                    servicePaymentOrderId:
+                      null,
 
-                  await tx.userWallet.update({
-                    where: {
-                      id:
-                        wallet.id,
-                    },
+                    rechargePackId:
+                      data.rechargePackId,
 
-                    data: {
-                      balanceCoins: {
-                        increment:
-                          cashbackAmount,
-                      },
-                    },
-                  });
-
-                  /**
-                   * Cashback transaction
-                   */
-
-                  await tx.walletTransaction.create({
-                    data: {
-                      userWalletId:
-                        wallet.id,
-
-                      paymentId:
-                        payment.id,
-
-                      rechargePackId:
-                        data.rechargePackId,
-
-                      type:
-                        "CASHBACK",
-
-                      coins:
-                        cashbackAmount,
-
-                      amount: 0,
-
-                      description:
-                        `Cashback (${data.couponCode || "Coupon"})`,
-                    },
-                  });
-
-                  console.log(
-                    `CASHBACK CREDITED: amount=${cashbackAmount}, coupon=${data.couponCode}`,
-                  );
-                }
+                    couponCode:
+                      data.couponCode ||
+                      null,
+                  },
+                );
               }
 
               /**
-               * =================================================
-               * DISCOUNT
-               * =================================================
+               * ======================================================
+               * RECHARGE DISCOUNT
+               * ======================================================
+               *
+               * Discount does NOT increase wallet balance.
+               *
+               * It is only recorded as a transaction.
                */
 
               if (
@@ -1190,32 +1530,35 @@ if (data.serviceType === "SERVICE") {
                 if (!discountExists) {
                   const discountAmount =
                     Number(
-                      data.discount || 0,
+                      data.discount ||
+                        0,
                     );
 
-                  await tx.walletTransaction.create({
-                    data: {
-                      userWalletId:
-                        wallet.id,
+                  await tx.walletTransaction.create(
+                    {
+                      data: {
+                        userWalletId:
+                          wallet.id,
 
-                      paymentId:
-                        payment.id,
+                        paymentId:
+                          payment.id,
 
-                      rechargePackId:
-                        data.rechargePackId,
+                        rechargePackId:
+                          data.rechargePackId,
 
-                      type:
-                        "DISCOUNT",
+                        type:
+                          "DISCOUNT",
 
-                      coins:
-                        discountAmount,
+                        coins:
+                          discountAmount,
 
-                      amount: 0,
+                        amount: 0,
 
-                      description:
-                        `Discount Applied (${data.couponCode || "Coupon"})`,
+                        description:
+                          `Discount Applied (${data.couponCode || "Coupon"})`,
+                      },
                     },
-                  });
+                  );
 
                   console.log(
                     `DISCOUNT APPLIED: amount=${discountAmount}, coupon=${data.couponCode}`,
@@ -1224,24 +1567,25 @@ if (data.serviceType === "SERVICE") {
               }
 
               /**
-               * =================================================
+               * ======================================================
                * SUCCESS LOG
-               * =================================================
+               * ======================================================
                */
 
               console.log(
-                `SUCCESS: user=${data.userId}, coins=${data.coins}, payment=${data.paymentId}, coupon=${data.couponCode || "NONE"}`,
+                `SUCCESS: user=${data.userId}, coins=${data.coins}, payment=${data.paymentId}, coupon=${data.couponCode || "NONE"}, couponType=${data.couponType || "NONE"}, discount=${data.discount || 0}, cashback=${data.cashback || 0}`,
               );
             },
+
             {
               timeout: 10000,
             },
           );
 
           /**
-           * ============================
+           * ============================================================
            * ACK MESSAGE
-           * ============================
+           * ============================================================
            */
 
           channel.ack(msg);
@@ -1252,9 +1596,9 @@ if (data.serviceType === "SERVICE") {
           );
 
           /**
-           * ============================
+           * ============================================================
            * REJECT MESSAGE
-           * ============================
+           * ============================================================
            *
            * Currently no requeue.
            */
@@ -1266,6 +1610,7 @@ if (data.serviceType === "SERVICE") {
           );
         }
       },
+
       {
         noAck: false,
       },
@@ -1277,7 +1622,7 @@ if (data.serviceType === "SERVICE") {
     );
 
     /**
-     * Retry connection after 5 seconds
+     * Retry after 5 seconds
      */
 
     setTimeout(
@@ -1288,9 +1633,9 @@ if (data.serviceType === "SERVICE") {
 }
 
 /**
- * ============================
+ * ============================================================
  * GRACEFUL SHUTDOWN
- * ============================
+ * ============================================================
  */
 
 async function shutdown() {
@@ -1321,9 +1666,9 @@ async function shutdown() {
 }
 
 /**
- * ============================
+ * ============================================================
  * PROCESS SIGNALS
- * ============================
+ * ============================================================
  */
 
 process.on(
@@ -1337,9 +1682,9 @@ process.on(
 );
 
 /**
- * ============================
+ * ============================================================
  * START CONSUMER
- * ============================
+ * ============================================================
  */
 
 startConsumer();
