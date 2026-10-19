@@ -675,7 +675,6 @@ async function startConsumer() {
 
                 return;
               }
-              console.log("message serviceType---------:", message.serviceType);
               /**
                * =================================================
                * PUJA PAYMENT
@@ -683,6 +682,7 @@ async function startConsumer() {
                */
 
               if (data.serviceType === "PUJA") {
+                 console.log("comming in paja block");
                 const orderId = data.orderId;
 
                 if (!orderId) {
