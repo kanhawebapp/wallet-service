@@ -696,7 +696,7 @@ async function startConsumer() {
                       where: {
                         razorpayOrderId: orderId,
                         status: {
-                          not: "SUCCESS",
+                          not: "PAID",
                         },
                       },
                       data: {
@@ -727,7 +727,7 @@ async function startConsumer() {
                 }
 
                 // Prevent duplicate processing.
-                if (pujaOrder.status === "SUCCESS") {
+                if (pujaOrder.status === "PAID") {
                   console.log("PUJA payment already processed:", orderId);
                   return;
                 }
@@ -790,11 +790,11 @@ async function startConsumer() {
                   where: {
                     id: pujaOrder.id,
                     status: {
-                      not: "SUCCESS",
+                      not: "PAID",
                     },
                   },
                   data: {
-                    status: "SUCCESS",
+                    status: "PAID",
                   },
                 });
 
