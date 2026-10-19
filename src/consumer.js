@@ -690,7 +690,7 @@ async function startConsumer() {
                   throw new Error("Missing Razorpay order ID");
                 }
 
-                // Only process captured payments.
+                // Process only captured payments.
                 if (data.status !== "captured") {
                   if (data.status === "failed") {
                     await tx.pujaPaymentOrder.updateMany({
@@ -713,7 +713,7 @@ async function startConsumer() {
                   return;
                 }
 
-                // Fetch the PUJA payment order.
+                // Fetch payment order.
                 const pujaOrder = await tx.pujaPaymentOrder.findUnique({
                   where: {
                     razorpayOrderId: orderId,
@@ -733,10 +733,10 @@ async function startConsumer() {
                   return;
                 }
 
-                // Read amounts from the database.
+                // Read stored amounts.
                 const totalAmount = Number(pujaOrder.totalAmount ?? 0);
-                const walletAmount = Number(pujaOrder.walletAmount ?? 0);
                 const payableAmount = Number(pujaOrder.payableAmount ?? 0);
+                const walletAmount = Number(pujaOrder.walletAmount ?? 0);
                 const discount = Number(pujaOrder.discount ?? 0);
                 const cashback = Number(pujaOrder.cashback ?? 0);
 
@@ -751,8 +751,8 @@ async function startConsumer() {
                   bookingId: pujaOrder.bookingId,
                   userId: pujaOrder.userId,
                   totalAmount,
-                  walletAmount,
                   payableAmount,
+                  walletAmount,
                   discount,
                   cashback,
                   couponCode,
@@ -762,8 +762,8 @@ async function startConsumer() {
                 // Validate amounts.
                 const amounts = {
                   totalAmount,
-                  walletAmount,
                   payableAmount,
+                  walletAmount,
                   discount,
                   cashback,
                 };
@@ -776,12 +776,7 @@ async function startConsumer() {
                   }
                 }
 
-                /*
-                 * Cashback is only credited when:
-                 * 1. A coupon is associated with the payment order.
-                 * 2. The coupon type is CASHBACK.
-                 * 3. The stored cashback amount is greater than zero.
-                 */
+                // Determine whether cashback applies.
                 const isCashbackCoupon =
                   Boolean(pujaOrder.coupon) &&
                   couponType === "CASHBACK" &&
@@ -790,11 +785,17 @@ async function startConsumer() {
                 const cashbackAmount = isCashbackCoupon ? cashback : 0;
 
                 /*
-                 * Claim the payment before processing wallet transactions.
+                 * IMPORTANT:
+                 * This implementation treats payableAmount as the amount to deduct
+                 * from the internal wallet, as requested.
                  *
-                 * The update, wallet deduction, and cashback credit are part of
-                 * the same outer Prisma transaction.
+                 * Verify that payableAmount is NOT already being charged through
+                 * Razorpay. If Razorpay captures this amount, do not deduct it again.
                  */
+
+                const deductionAmount = payableAmount;
+
+                // Claim the order inside the existing Prisma transaction.
                 const claimedOrder = await tx.pujaPaymentOrder.updateMany({
                   where: {
                     id: pujaOrder.id,
@@ -816,12 +817,8 @@ async function startConsumer() {
                 let balanceAfterDeduction = null;
                 let finalBalance = null;
 
-                /*
-                 * =========================================================
-                 * GET OR CREATE USER WALLET
-                 * =========================================================
-                 */
-                if (walletAmount > 0 || cashbackAmount > 0) {
+                // Create or retrieve wallet.
+                if (deductionAmount > 0 || cashbackAmount > 0) {
                   const wallet = await tx.userWallet.upsert({
                     where: {
                       userId: pujaOrder.userId,
@@ -837,42 +834,36 @@ async function startConsumer() {
                   previousBalance = Number(wallet.balanceCoins);
 
                   /*
-                   * =========================================================
-                   * DEDUCT WALLET COINS
-                   * =========================================================
-                   *
-                   * Deduct only the amount stored in walletAmount.
-                   * Do not deduct payableAmount, because that is the
-                   * Razorpay payment amount in this payment-order design.
+                   * DEDUCT PAYABLE AMOUNT FROM WALLET
                    */
-                  if (walletAmount > 0) {
+                  if (deductionAmount > 0) {
                     const deduction = await tx.userWallet.updateMany({
                       where: {
                         id: wallet.id,
                         balanceCoins: {
-                          gte: walletAmount,
+                          gte: deductionAmount,
                         },
                       },
                       data: {
                         balanceCoins: {
-                          decrement: walletAmount,
+                          decrement: deductionAmount,
                         },
                       },
                     });
 
                     if (deduction.count === 0) {
                       throw new Error(
-                        `Insufficient wallet balance or deduction failed for PUJA order ${orderId}. ` +
-                          `Required: ${walletAmount}`,
+                        `Insufficient wallet balance for PUJA order ${orderId}. ` +
+                          `Available: ${previousBalance}, required: ${deductionAmount}`,
                       );
                     }
 
-                    // Record the wallet debit.
+                    // Record wallet debit.
                     await tx.walletTransaction.create({
                       data: {
                         userWalletId: wallet.id,
                         type: "DEBIT",
-                        coins: walletAmount,
+                        coins: deductionAmount,
                         amount: 0,
                         description: `Puja payment (${orderId})`,
                       },
@@ -890,26 +881,19 @@ async function startConsumer() {
                       walletAfterDeduction.balanceCoins,
                     );
 
-                    console.log("PUJA WALLET DEDUCTED SUCCESSFULLY:", {
+                    console.log("PUJA WALLET DEDUCTED:", {
                       orderId,
                       userId: pujaOrder.userId,
-                      walletAmount,
+                      deductionAmount,
                       previousBalance,
                       balanceAfterDeduction,
                     });
                   } else {
-                    console.log(
-                      "No wallet deduction required for this PUJA order:",
-                      orderId,
-                    );
-
                     balanceAfterDeduction = previousBalance;
                   }
 
                   /*
-                   * =========================================================
                    * CREDIT CASHBACK
-                   * =========================================================
                    */
                   if (cashbackAmount > 0) {
                     const updatedWallet = await tx.userWallet.update({
@@ -925,7 +909,6 @@ async function startConsumer() {
 
                     finalBalance = Number(updatedWallet.balanceCoins);
 
-                    // Record the cashback credit.
                     await tx.walletTransaction.create({
                       data: {
                         userWalletId: wallet.id,
@@ -936,14 +919,11 @@ async function startConsumer() {
                       },
                     });
 
-                    console.log("PUJA CASHBACK CREDITED SUCCESSFULLY:", {
+                    console.log("PUJA CASHBACK CREDITED:", {
                       orderId,
                       userId: pujaOrder.userId,
-                      bookingId: pujaOrder.bookingId,
                       couponCode,
                       cashbackAmount,
-                      previousBalance,
-                      balanceAfterDeduction,
                       finalBalance,
                     });
                   } else {
@@ -956,25 +936,15 @@ async function startConsumer() {
                       cashback,
                     });
                   }
-                } else {
-                  console.log(
-                    "No wallet deduction or cashback required for PUJA order:",
-                    orderId,
-                  );
                 }
 
-                /*
-                 * =========================================================
-                 * FINAL LOG
-                 * =========================================================
-                 */
                 console.log("PUJA PAYMENT PROCESSED SUCCESSFULLY:", {
                   orderId,
                   bookingId: pujaOrder.bookingId,
                   userId: pujaOrder.userId,
                   totalAmount,
-                  walletAmount,
                   payableAmount,
+                  deductionAmount,
                   discount,
                   cashbackCredited: cashbackAmount,
                   previousBalance,
@@ -982,10 +952,7 @@ async function startConsumer() {
                   finalBalance,
                 });
 
-                /*
-                 * IMPORTANT:
-                 * Do not allow PUJA payments to fall through to recharge logic.
-                 */
+                // Prevent this PUJA payment from falling through to recharge logic.
                 return;
               }
 
