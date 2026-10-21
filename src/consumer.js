@@ -470,7 +470,40 @@ async function startConsumer() {
                * =================================================
                */
 
+              /**
+               * =================================================
+               * SERVICE PAYMENT
+               * =================================================
+               *
+               * Handles:
+               * 1. Service payment verification
+               * 2. ServicePaymentOrder update
+               * 3. User wallet deduction
+               * 4. Wallet DEBIT transaction
+               * 5. Coupon redemption
+               * 6. Cashback credit
+               * 7. Wallet CASHBACK transaction
+               * 8. ServiceBooking status update
+               *
+               * All operations run inside the existing Prisma
+               * transaction.
+               */
+
               if (data.serviceType === "SERVICE") {
+                console.log("Processing SERVICE payment:", data.orderId);
+
+                /**
+                 * =================================================
+                 * VALIDATE ORDER ID
+                 * =================================================
+                 */
+
+                const orderId = data.orderId;
+
+                if (!orderId) {
+                  throw new Error("Missing SERVICE Razorpay order ID");
+                }
+
                 /**
                  * =================================================
                  * FIND SERVICE PAYMENT ORDER
@@ -480,80 +513,116 @@ async function startConsumer() {
                 const servicePaymentOrder =
                   await tx.servicePaymentOrder.findUnique({
                     where: {
-                      razorpayOrderId: data.orderId,
+                      razorpayOrderId: orderId,
                     },
                   });
 
                 if (!servicePaymentOrder) {
                   throw new Error(
-                    `Service payment order not found: ${data.orderId}`,
+                    `Service payment order not found: ${orderId}`,
                   );
                 }
 
                 /**
                  * =================================================
-                 * FAILED SERVICE PAYMENT
+                 * HANDLE FAILED PAYMENT
                  * =================================================
                  */
 
                 if (data.status === "failed") {
-                  await tx.servicePaymentOrder.update({
-                    where: {
-                      id: servicePaymentOrder.id,
-                    },
-                    data: {
-                      status: "FAILED",
-                    },
-                  });
+                  if (servicePaymentOrder.status !== "PAID") {
+                    await tx.servicePaymentOrder.update({
+                      where: {
+                        id: servicePaymentOrder.id,
+                      },
+                      data: {
+                        status: "FAILED",
+                      },
+                    });
+                  }
 
-                  console.log(`SERVICE PAYMENT FAILED: order=${data.orderId}`);
+                  console.log("SERVICE payment failed:", orderId);
 
                   return;
                 }
 
                 /**
                  * =================================================
-                 * ONLY PROCESS CAPTURED PAYMENT
+                 * PROCESS ONLY CAPTURED PAYMENTS
                  * =================================================
                  */
 
                 if (data.status !== "captured") {
-                  console.log(
-                    `Ignoring unsupported service payment status: ${data.status}`,
-                  );
+                  console.log("Ignoring SERVICE payment status:", data.status);
 
                   return;
                 }
 
                 /**
                  * =================================================
-                 * PREVENT DUPLICATE PAYMENT PROCESSING
+                 * PREVENT DUPLICATE PROCESSING
                  * =================================================
                  */
 
                 if (servicePaymentOrder.status === "PAID") {
-                  console.log(
-                    `Service payment already processed: ${data.orderId}`,
-                  );
+                  console.log("SERVICE payment already processed:", orderId);
 
                   return;
                 }
 
                 /**
                  * =================================================
-                 * FIND SERVICE COUPON
+                 * VALIDATE USER AND BOOKING
                  * =================================================
-                 *
-                 * couponCode comes from the payment.success event.
-                 *
-                 * couponId in ServicePaymentOrder must contain
-                 * the actual Coupon.id, NOT the coupon code.
                  */
 
-                let couponId = null;
+                const userId = servicePaymentOrder.userId;
 
-                if (data.couponCode && data.couponCode.trim() !== "") {
-                  const coupon = await tx.coupon.findUnique({
+                if (!userId) {
+                  throw new Error(
+                    `User ID missing for SERVICE order ${orderId}`,
+                  );
+                }
+
+                if (!servicePaymentOrder.bookingId) {
+                  throw new Error(
+                    `Booking ID missing for SERVICE order ${orderId}`,
+                  );
+                }
+
+                /**
+                 * =================================================
+                 * FIND COUPON
+                 * =================================================
+                 *
+                 * couponId stored in ServicePaymentOrder must
+                 * contain Coupon.id, not Coupon.code.
+                 */
+
+                let coupon = null;
+
+                let couponId = servicePaymentOrder.couponId ?? null;
+
+                if (couponId) {
+                  coupon = await tx.coupon.findUnique({
+                    where: {
+                      id: couponId,
+                    },
+                    select: {
+                      id: true,
+                      code: true,
+                      type: true,
+                    },
+                  });
+
+                  if (!coupon) {
+                    throw new Error(`SERVICE coupon not found: ${couponId}`);
+                  }
+                } else if (
+                  typeof data.couponCode === "string" &&
+                  data.couponCode.trim() !== ""
+                ) {
+                  coupon = await tx.coupon.findUnique({
                     where: {
                       code: data.couponCode.trim().toUpperCase(),
                     },
@@ -565,60 +634,134 @@ async function startConsumer() {
                   });
 
                   if (!coupon) {
-                    throw new Error(`Coupon not found: ${data.couponCode}`);
+                    throw new Error(
+                      `SERVICE coupon not found: ${data.couponCode}`,
+                    );
                   }
 
                   couponId = coupon.id;
-
-                  console.log("SERVICE COUPON FOUND:", {
-                    couponId: coupon.id,
-                    couponCode: coupon.code,
-                    couponType: coupon.type,
-                  });
                 }
 
                 /**
                  * =================================================
-                 * NORMALIZE PAYMENT VALUES
+                 * NORMALIZE AMOUNTS
+                 * =================================================
+                 *
+                 * totalAmount:
+                 *   Total service coins/amount recorded for the order.
+                 *
+                 * payableAmount:
+                 *   Amount captured through Razorpay.
+                 *
+                 * walletAmount:
+                 *   Amount of the service cost funded from the wallet.
+                 *
+                 * discount:
+                 *   Coupon discount.
+                 *
+                 * cashback:
+                 *   Cashback coins awarded to the user.
+                 *
+                 * IMPORTANT:
+                 * Do not deduct payableAmount from the wallet.
+                 * Razorpay has already captured that amount.
+                 *
+                 * Deduct walletAmount only when the order records
+                 * an actual wallet contribution.
+                 */
+
+                const totalAmount = Number(
+                  data.coins ?? servicePaymentOrder.totalAmount ?? 0,
+                );
+
+                const payableAmount = Number(
+                  data.amount ?? servicePaymentOrder.payableAmount ?? 0,
+                );
+
+                const walletAmount = Number(
+                  servicePaymentOrder.walletAmount ?? 0,
+                );
+
+                const discount = Number(
+                  data.discount ?? servicePaymentOrder.discount ?? 0,
+                );
+
+                const cashback = Number(
+                  data.cashback ?? servicePaymentOrder.cashback ?? 0,
+                );
+
+                const couponCode = coupon?.code ?? null;
+
+                const couponType = String(
+                  coupon?.type ?? data.couponType ?? "",
+                ).toUpperCase();
+
+                /**
+                 * =================================================
+                 * VALIDATE PAYMENT AMOUNTS
                  * =================================================
                  */
 
-                const totalAmount = Number(data.coins || 0);
-
-                const payableAmount = Number(data.amount || 0);
-
-                const discount = Number(data.discount || 0);
-
-                const cashback = Number(data.cashback || 0);
-
-                console.log("SERVICE PAYMENT VALUES:", {
-                  orderId: data.orderId,
-                  paymentId: data.paymentId,
+                const amountValues = {
                   totalAmount,
                   payableAmount,
-                  couponId,
+                  walletAmount,
                   discount,
                   cashback,
+                };
+
+                for (const [key, value] of Object.entries(amountValues)) {
+                  if (!Number.isFinite(value) || value < 0) {
+                    throw new Error(
+                      `Invalid SERVICE payment amount: ${key}=${value}, order=${orderId}`,
+                    );
+                  }
+                }
+
+                /**
+                 * =================================================
+                 * DETERMINE CASHBACK ELIGIBILITY
+                 * =================================================
+                 */
+
+                const cashbackAmount =
+                  couponId && couponType === "CASHBACK" && cashback > 0
+                    ? cashback
+                    : 0;
+
+                console.log("SERVICE PAYMENT DETAILS:", {
+                  orderId,
+                  userId,
+                  bookingId: servicePaymentOrder.bookingId,
+                  totalAmount,
+                  payableAmount,
+                  walletAmount,
+                  discount,
+                  cashback,
+                  cashbackAmount,
+                  couponId,
+                  couponCode,
+                  couponType,
                 });
 
                 /**
                  * =================================================
-                 * UPDATE SERVICE PAYMENT ORDER
+                 * CLAIM SERVICE PAYMENT ORDER
                  * =================================================
                  *
-                 * Mapping:
+                 * Conditional update protects against concurrent
+                 * consumers attempting to process the same order.
                  *
-                 * data.coins       -> totalAmount
-                 * data.amount      -> payableAmount
-                 * coupon.id        -> couponId
-                 * data.discount    -> discount
-                 * data.cashback    -> cashback
-                 * captured         -> PAID
+                 * Because this update is inside the transaction,
+                 * any later failure rolls it back.
                  */
 
-                await tx.servicePaymentOrder.update({
+                const claimedOrder = await tx.servicePaymentOrder.updateMany({
                   where: {
                     id: servicePaymentOrder.id,
+                    status: {
+                      not: "PAID",
+                    },
                   },
                   data: {
                     totalAmount,
@@ -630,9 +773,231 @@ async function startConsumer() {
                   },
                 });
 
-                console.log(
-                  `SERVICE PAYMENT ORDER UPDATED: order=${data.orderId}`,
-                );
+                if (claimedOrder.count === 0) {
+                  console.log("SERVICE payment already claimed:", orderId);
+
+                  return;
+                }
+
+                /**
+                 * =================================================
+                 * GET OR CREATE USER WALLET
+                 * =================================================
+                 */
+
+                let wallet = null;
+
+                let previousBalance = 0;
+
+                let balanceAfterDeduction = 0;
+
+                let finalBalance = 0;
+
+                if (walletAmount > 0 || cashbackAmount > 0) {
+                  wallet = await tx.userWallet.upsert({
+                    where: {
+                      userId,
+                    },
+                    update: {},
+                    create: {
+                      userId,
+                      balanceCoins: 0,
+                      lockedCoins: 0,
+                    },
+                  });
+
+                  previousBalance = Number(wallet.balanceCoins);
+
+                  balanceAfterDeduction = previousBalance;
+
+                  finalBalance = previousBalance;
+
+                  console.log("SERVICE USER WALLET:", {
+                    userId,
+                    walletId: wallet.id,
+                    previousBalance,
+                  });
+                }
+
+                /**
+                 * =================================================
+                 * DEDUCT SERVICE COST FROM USER WALLET
+                 * =================================================
+                 *
+                 * Only walletAmount is deducted.
+                 *
+                 * payableAmount is the Razorpay-captured amount
+                 * and must not be deducted a second time.
+                 */
+
+                if (wallet && walletAmount > 0) {
+                  const deduction = await tx.userWallet.updateMany({
+                    where: {
+                      id: wallet.id,
+                      userId,
+                      balanceCoins: {
+                        gte: walletAmount,
+                      },
+                    },
+                    data: {
+                      balanceCoins: {
+                        decrement: walletAmount,
+                      },
+                    },
+                  });
+
+                  if (deduction.count === 0) {
+                    throw new Error(
+                      `Insufficient wallet balance for SERVICE order ${orderId}. ` +
+                        `Available: ${previousBalance}, required: ${walletAmount}`,
+                    );
+                  }
+
+                  /**
+                   * =================================================
+                   * CREATE WALLET DEBIT TRANSACTION
+                   * =================================================
+                   */
+
+                  await tx.walletTransaction.create({
+                    data: {
+                      userWalletId: wallet.id,
+                      type: "DEBIT",
+                      coins: walletAmount,
+                      amount: 0,
+                      description: `Service payment (${orderId})`,
+                    },
+                  });
+
+                  /**
+                   * =================================================
+                   * READ BALANCE AFTER DEDUCTION
+                   * =================================================
+                   */
+
+                  const updatedWallet = await tx.userWallet.findUnique({
+                    where: {
+                      id: wallet.id,
+                    },
+                  });
+
+                  if (!updatedWallet) {
+                    throw new Error(
+                      `Wallet not found after SERVICE deduction: ${userId}`,
+                    );
+                  }
+
+                  balanceAfterDeduction = Number(updatedWallet.balanceCoins);
+
+                  finalBalance = balanceAfterDeduction;
+
+                  console.log("SERVICE WALLET DEDUCTED:", {
+                    orderId,
+                    userId,
+                    walletAmount,
+                    previousBalance,
+                    balanceAfterDeduction,
+                  });
+                }
+
+                /**
+                 * =================================================
+                 * CREDIT CASHBACK TO USER WALLET
+                 * =================================================
+                 *
+                 * Cashback is credited only for CASHBACK coupons.
+                 *
+                 * DISCOUNT coupons do not receive cashback from
+                 * this block.
+                 */
+
+                if (wallet && cashbackAmount > 0) {
+                  const updatedWallet = await tx.userWallet.update({
+                    where: {
+                      id: wallet.id,
+                    },
+                    data: {
+                      balanceCoins: {
+                        increment: cashbackAmount,
+                      },
+                    },
+                  });
+
+                  finalBalance = Number(updatedWallet.balanceCoins);
+
+                  /**
+                   * =================================================
+                   * CREATE CASHBACK TRANSACTION
+                   * =================================================
+                   */
+
+                  await tx.walletTransaction.create({
+                    data: {
+                      userWalletId: wallet.id,
+                      type: "CASHBACK",
+                      coins: cashbackAmount,
+                      amount: 0,
+                      description: `Service cashback (${couponCode ?? couponId})`,
+                    },
+                  });
+
+                  console.log("SERVICE CASHBACK CREDITED:", {
+                    orderId,
+                    userId,
+                    couponCode,
+                    cashbackAmount,
+                    balanceAfterDeduction,
+                    finalBalance,
+                  });
+                } else {
+                  console.log("SERVICE cashback not applicable:", {
+                    orderId,
+                    couponCode,
+                    couponType,
+                    cashback,
+                  });
+                }
+
+                /**
+                 * =================================================
+                 * REDEEM SERVICE COUPON
+                 * =================================================
+                 */
+
+                if (couponId) {
+                  /**
+                   * redeemServiceCoupon expects couponCode in data.
+                   *
+                   * Preserve the event payload but ensure the
+                   * normalized coupon code is available.
+                   */
+
+                  const couponRedemptionData = {
+                    ...data,
+                    userId,
+                    couponCode,
+                    couponType,
+                    discount,
+                    cashback,
+                  };
+
+                  await redeemServiceCoupon(tx, couponRedemptionData, {
+                    ...servicePaymentOrder,
+                    id: servicePaymentOrder.id,
+                    couponId,
+                  });
+
+                  console.log("SERVICE COUPON REDEEMED:", {
+                    orderId,
+                    userId,
+                    couponId,
+                    couponCode,
+                    discount,
+                    cashback,
+                  });
+                } else {
+                  console.log("No coupon applied to SERVICE order:", orderId);
+                }
 
                 /**
                  * =================================================
@@ -652,26 +1017,27 @@ async function startConsumer() {
 
                 /**
                  * =================================================
-                 * SERVICE COUPON REDEMPTION
+                 * FINAL SERVICE PAYMENT LOG
                  * =================================================
                  */
 
-                if (couponId) {
-                  await redeemServiceCoupon(tx, data, {
-                    ...servicePaymentOrder,
-                    couponId,
-                  });
-                }
-
-                /**
-                 * =================================================
-                 * SERVICE SUCCESS
-                 * =================================================
-                 */
-
-                console.log(
-                  `SERVICE PAYMENT SUCCESS: booking=${servicePaymentOrder.bookingId}, payment=${servicePaymentOrder.id}, totalAmount=${totalAmount}, payableAmount=${payableAmount}, coupon=${data.couponCode || "NONE"}, discount=${discount}, cashback=${cashback}`,
-                );
+                console.log("SERVICE PAYMENT PROCESSED SUCCESSFULLY:", {
+                  orderId,
+                  paymentId: data.paymentId,
+                  userId,
+                  bookingId: servicePaymentOrder.bookingId,
+                  totalAmount,
+                  payableAmount,
+                  walletAmount,
+                  discount,
+                  cashbackCredited: cashbackAmount,
+                  couponId,
+                  couponCode,
+                  couponType,
+                  previousBalance,
+                  balanceAfterDeduction,
+                  finalBalance,
+                });
 
                 return;
               }
