@@ -958,6 +958,89 @@ async function startConsumer() {
                   });
                 }
 
+                if (couponId && couponType === "DISCOUNT" && discount > 0) {
+                  /**
+                   * Get or create wallet for recording the transaction.
+                   *
+                   * A wallet is needed even when no wallet coins
+                   * were used to pay for the service.
+                   */
+
+                  if (!wallet) {
+                    wallet = await tx.userWallet.upsert({
+                      where: {
+                        userId,
+                      },
+                      update: {},
+                      create: {
+                        userId,
+                        balanceCoins: 0,
+                        lockedCoins: 0,
+                      },
+                    });
+
+                    previousBalance = Number(wallet.balanceCoins);
+
+                    balanceAfterDeduction = previousBalance;
+
+                    finalBalance = previousBalance;
+                  }
+
+                  /**
+                   * Prevent duplicate discount transactions.
+                   *
+                   * Your WalletTransaction schema does not currently
+                   * show a servicePaymentOrderId field, so use the
+                   * unique order ID in the description for lookup.
+                   */
+
+                  const discountDescription = `Service discount (${couponCode || couponId}) - Order ${orderId}`;
+
+                  const existingDiscountTransaction =
+                    await tx.walletTransaction.findFirst({
+                      where: {
+                        userWalletId: wallet.id,
+                        type: "DISCOUNT",
+                        description: discountDescription,
+                      },
+                    });
+
+                  if (!existingDiscountTransaction) {
+                    /**
+                     * Create discount transaction.
+                     *
+                     * IMPORTANT:
+                     * Do not update balanceCoins here because the
+                     * discount is not a wallet credit.
+                     */
+
+                    await tx.walletTransaction.create({
+                      data: {
+                        userWalletId: wallet.id,
+                        type: "DISCOUNT",
+                        coins: discount,
+                        amount: 0,
+                        description: discountDescription,
+                      },
+                    });
+
+                    console.log("SERVICE DISCOUNT RECORDED:", {
+                      orderId,
+                      userId,
+                      walletId: wallet.id,
+                      couponId,
+                      couponCode,
+                      discount,
+                      walletBalance: finalBalance,
+                    });
+                  } else {
+                    console.log(
+                      "SERVICE discount transaction already exists:",
+                      orderId,
+                    );
+                  }
+                }
+
                 /**
                  * =================================================
                  * REDEEM SERVICE COUPON
