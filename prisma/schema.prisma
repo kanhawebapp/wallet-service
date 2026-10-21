@@ -1709,6 +1709,7 @@ model CouponRedemption {
   // Service booking payment
   servicePaymentOrderId String? @unique
   servicePaymentOrder ServicePaymentOrder? @relation(fields: [servicePaymentOrderId], references: [id])
+   pujaPaymentOrderId String?           @unique
   pujaPaymentOrder     PujaPaymentOrder?    @relation(fields: [pujaPaymentOrderId], references: [id])
   discount Float
 
