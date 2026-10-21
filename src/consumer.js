@@ -1507,7 +1507,7 @@ async function startConsumer() {
                     id: pujaOrder.bookingId,
                   },
                   data: {
-                    paymentStatus: "PAID",
+                    paymentStatus: "SUCCESS",
                     bookingStatus: "COMPLETED",
                   },
                 });
