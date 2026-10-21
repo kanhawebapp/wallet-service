@@ -253,6 +253,97 @@ async function redeemServiceCoupon(tx, data, servicePaymentOrder) {
   );
 }
 
+async function redeemPujaCoupon(tx, data, pujaOrder) {
+  const couponId = pujaOrder.couponId;
+  const userId = pujaOrder.userId;
+  const pujaPaymentOrderId = pujaOrder.id;
+
+  if (!couponId) {
+    console.log("No coupon applied to PUJA order:", pujaOrder.razorpayOrderId);
+    return;
+  }
+
+  // Avoid creating the same redemption twice.
+  const existingRedemption = await tx.couponRedemption.findFirst({
+    where: {
+      couponId,
+      userId,
+      pujaPaymentOrderId,
+    },
+  });
+
+  if (existingRedemption) {
+    console.log("PUJA coupon redemption already exists:", {
+      pujaPaymentOrderId,
+      couponId,
+      userId,
+    });
+    return;
+  }
+
+  const coupon = await tx.coupon.findUnique({
+    where: {
+      id: couponId,
+    },
+  });
+
+  if (!coupon) {
+    throw new Error(`Coupon not found: ${couponId}`);
+  }
+
+  // Preserve the existing coupon eligibility/limit checks used by your
+  // service helper, including your intended per-user redemption rules.
+  const existingUserRedemption = await tx.couponRedemption.findFirst({
+    where: {
+      couponId,
+      userId,
+    },
+  });
+
+  if (existingUserRedemption) {
+    throw new Error(
+      `User ${userId} has already redeemed coupon ${coupon.code}`
+    );
+  }
+
+  if (
+    coupon.redeemLimit != null &&
+    coupon.usedCount >= coupon.redeemLimit
+  ) {
+    throw new Error(`Coupon redemption limit reached: ${coupon.code}`);
+  }
+
+  const discount = Number(data.discount ?? pujaOrder.discount ?? 0);
+
+  await tx.couponRedemption.create({
+    data: {
+      couponId,
+      userId,
+      pujaPaymentOrderId,
+      discount,
+    },
+  });
+
+  await tx.coupon.update({
+    where: {
+      id: couponId,
+    },
+    data: {
+      usedCount: {
+        increment: 1,
+      },
+    },
+  });
+
+  console.log("PUJA coupon redemption created:", {
+    pujaPaymentOrderId,
+    couponId,
+    couponCode: coupon.code,
+    userId,
+    discount,
+  });
+}
+
 /**
  * ============================
  * RECHARGE COUPON REDEMPTION
@@ -1394,7 +1485,7 @@ async function startConsumer() {
                     couponCode,
                   });
 
-                  await redeemServiceCoupon(tx, data, {
+                  await redeemPujaCoupon(tx, data, {
                     ...pujaOrder,
                     couponId,
                   });
