@@ -1508,7 +1508,7 @@ async function startConsumer() {
                   },
                   data: {
                     paymentStatus: "PAID",
-                    bookingStatus: "CONFIRMED",
+                    bookingStatus: "COMPLETED",
                   },
                 });
 
