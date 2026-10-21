@@ -713,7 +713,7 @@ async function startConsumer() {
                   return;
                 }
 
-                // Fetch payment order.
+                // Fetch payment order and coupon.
                 const pujaOrder = await tx.pujaPaymentOrder.findUnique({
                   where: {
                     razorpayOrderId: orderId,
@@ -740,6 +740,7 @@ async function startConsumer() {
                 const discount = Number(pujaOrder.discount ?? 0);
                 const cashback = Number(pujaOrder.cashback ?? 0);
 
+                const couponId = pujaOrder.couponId ?? null;
                 const couponCode = pujaOrder.coupon?.code ?? null;
 
                 const couponType = String(
@@ -755,6 +756,7 @@ async function startConsumer() {
                   walletAmount,
                   discount,
                   cashback,
+                  couponId,
                   couponCode,
                   couponType,
                 });
@@ -778,7 +780,7 @@ async function startConsumer() {
 
                 // Determine whether cashback applies.
                 const isCashbackCoupon =
-                  Boolean(pujaOrder.coupon) &&
+                  Boolean(couponId) &&
                   couponType === "CASHBACK" &&
                   cashback > 0;
 
@@ -786,16 +788,18 @@ async function startConsumer() {
 
                 /*
                  * IMPORTANT:
-                 * This implementation treats payableAmount as the amount to deduct
-                 * from the internal wallet, as requested.
+                 * This preserves your existing wallet-deduction behavior.
                  *
-                 * Verify that payableAmount is NOT already being charged through
-                 * Razorpay. If Razorpay captures this amount, do not deduct it again.
+                 * Verify whether payableAmount is the amount to deduct from the wallet.
+                 * If Razorpay has already captured payableAmount, do not deduct the same
+                 * amount from the wallet again.
                  */
-
                 const deductionAmount = payableAmount;
 
-                // Claim the order inside the existing Prisma transaction.
+                /*
+                 * Claim the order inside the existing transaction.
+                 * This helps prevent duplicate processing.
+                 */
                 const claimedOrder = await tx.pujaPaymentOrder.updateMany({
                   where: {
                     id: pujaOrder.id,
@@ -817,7 +821,9 @@ async function startConsumer() {
                 let balanceAfterDeduction = null;
                 let finalBalance = null;
 
-                // Create or retrieve wallet.
+                /*
+                 * CREATE OR RETRIEVE WALLET
+                 */
                 if (deductionAmount > 0 || cashbackAmount > 0) {
                   const wallet = await tx.userWallet.upsert({
                     where: {
@@ -834,7 +840,7 @@ async function startConsumer() {
                   previousBalance = Number(wallet.balanceCoins);
 
                   /*
-                   * DEDUCT PAYABLE AMOUNT FROM WALLET
+                   * DEDUCT PUJA PAYMENT FROM WALLET
                    */
                   if (deductionAmount > 0) {
                     const deduction = await tx.userWallet.updateMany({
@@ -915,7 +921,7 @@ async function startConsumer() {
                         type: "CASHBACK",
                         coins: cashbackAmount,
                         amount: 0,
-                        description: `Puja cashback (${couponCode})`,
+                        description: `Puja cashback (${couponCode ?? couponId})`,
                       },
                     });
 
@@ -938,6 +944,52 @@ async function startConsumer() {
                   }
                 }
 
+                /*
+                 * REDEEM APPLIED PUJA COUPON
+                 *
+                 * Reuses the redemption helper from your service-payment flow.
+                 * This must create the redemption record and update the coupon's
+                 * redemption count according to your existing schema.
+                 */
+                if (couponId) {
+                  console.log("Redeeming PUJA coupon:", {
+                    orderId,
+                    bookingId: pujaOrder.bookingId,
+                    userId: pujaOrder.userId,
+                    couponId,
+                    couponCode,
+                  });
+
+                  await redeemServiceCoupon(tx, data, {
+                    ...pujaOrder,
+                    couponId,
+                  });
+
+                  console.log("PUJA coupon redeemed successfully:", {
+                    orderId,
+                    couponId,
+                    couponCode,
+                  });
+                } else {
+                  console.log("No coupon applied to PUJA order:", orderId);
+                }
+
+                /*
+                 * UPDATE PUJA BOOKING PAYMENT STATUS
+                 *
+                 * Keep this if your payment webhook is responsible for confirming
+                 * the booking. Remove it if your existing flow already updates it.
+                 */
+                await tx.pujaBooking.update({
+                  where: {
+                    id: pujaOrder.bookingId,
+                  },
+                  data: {
+                    paymentStatus: "PAID",
+                    bookingStatus: "CONFIRMED",
+                  },
+                });
+
                 console.log("PUJA PAYMENT PROCESSED SUCCESSFULLY:", {
                   orderId,
                   bookingId: pujaOrder.bookingId,
@@ -947,6 +999,8 @@ async function startConsumer() {
                   deductionAmount,
                   discount,
                   cashbackCredited: cashbackAmount,
+                  couponId,
+                  couponCode,
                   previousBalance,
                   balanceAfterDeduction,
                   finalBalance,
