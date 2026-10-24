@@ -1193,6 +1193,35 @@ async function startConsumer() {
                  * idempotent if the same payment is redelivered.
                  */
 
+                                /**
+                 * =================================================
+                 * RESOLVE SERVICE ID
+                 * =================================================
+                 *
+                 * ServicePaymentOrder has no serviceId column —
+                 * the service is identified via ServiceBooking.
+                 */
+
+                const serviceBooking = await tx.serviceBooking.findUnique({
+                  where: { id: servicePaymentOrder.bookingId },
+                  select: { serviceId: true }, // ← match ServiceBooking field
+                });
+
+                const resolvedServiceId = serviceBooking?.serviceId ?? null;
+
+                if (!resolvedServiceId) {
+                  throw new Error(
+                    `Cannot resolve serviceId for SERVICE order ${orderId} ` +
+                      `(booking=${servicePaymentOrder.bookingId})`,
+                  );
+                }
+
+                /**
+                 * =================================================
+                 * SERVICES BANK PAYMENT LOG (SERVICE)
+                 * =================================================
+                 */
+
                 const serviceGst = calculateGST(
                   payableAmount,
                   data.state ?? null,
@@ -1203,14 +1232,12 @@ async function startConsumer() {
                 const serviceInvoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}-S`;
 
                 await tx.servicesBankPaymentLog.upsert({
-                  where: {
-                    razorpayPaymentId: data.paymentId,
-                  },
+                  where: { razorpayPaymentId: data.paymentId },
                   update: {},
                   create: {
                     userId,
                     serviceType: "SERVICE",
-                    serviceId: servicePaymentOrder.serviceId,
+                    serviceId: resolvedServiceId,
                     bookingId: servicePaymentOrder.bookingId,
 
                     amount: payableAmount,
@@ -1250,31 +1277,8 @@ async function startConsumer() {
                 console.log("SERVICE PAYMENT LOG CREATED:", {
                   orderId,
                   paymentId: data.paymentId,
+                  serviceId: resolvedServiceId,
                   invoiceNo: serviceInvoiceNo,
-                });
-
-                /**
-                 * =================================================
-                 * FINAL SERVICE PAYMENT LOG
-                 * =================================================
-                 */
-
-                console.log("SERVICE PAYMENT PROCESSED SUCCESSFULLY:", {
-                  orderId,
-                  paymentId: data.paymentId,
-                  userId,
-                  bookingId: servicePaymentOrder.bookingId,
-                  totalAmount,
-                  payableAmount,
-                  walletAmount,
-                  discount,
-                  cashbackCredited: cashbackAmount,
-                  couponId,
-                  couponCode,
-                  couponType,
-                  previousBalance,
-                  balanceAfterDeduction,
-                  finalBalance,
                 });
 
                 return;
@@ -1590,6 +1594,35 @@ async function startConsumer() {
                  * actually applied.
                  */
 
+                                /**
+                 * =================================================
+                 * RESOLVE PUJA SERVICE ID
+                 * =================================================
+                 *
+                 * PujaPaymentOrder has no serviceId.
+                 * PujaBooking.pujaId is the puja service id.
+                 */
+
+                const pujaBooking = await tx.pujaBooking.findUnique({
+                  where: { id: pujaOrder.bookingId },
+                  select: { pujaId: true },
+                });
+
+                const resolvedPujaServiceId = pujaBooking?.pujaId ?? null;
+
+                if (!resolvedPujaServiceId) {
+                  throw new Error(
+                    `Cannot resolve serviceId for PUJA order ${orderId} ` +
+                      `(booking=${pujaOrder.bookingId})`,
+                  );
+                }
+
+                /**
+                 * =================================================
+                 * SERVICES BANK PAYMENT LOG (PUJA)
+                 * =================================================
+                 */
+
                 const pujaGst = calculateGST(
                   payableAmount,
                   data.state ?? null,
@@ -1600,14 +1633,12 @@ async function startConsumer() {
                 const pujaInvoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}-P`;
 
                 await tx.servicesBankPaymentLog.upsert({
-                  where: {
-                    razorpayPaymentId: data.paymentId,
-                  },
+                  where: { razorpayPaymentId: data.paymentId },
                   update: {},
                   create: {
                     userId: pujaOrder.userId,
                     serviceType: "PUJA",
-                    serviceId: pujaOrder.serviceId,
+                    serviceId: resolvedPujaServiceId,
                     bookingId: pujaOrder.bookingId,
 
                     amount: payableAmount,
@@ -1647,19 +1678,8 @@ async function startConsumer() {
                 console.log("PUJA PAYMENT LOG CREATED:", {
                   orderId,
                   paymentId: data.paymentId,
+                  serviceId: resolvedPujaServiceId,
                   invoiceNo: pujaInvoiceNo,
-                });
-
-                console.log("PUJA PAYMENT PROCESSED SUCCESSFULLY:", {
-                  orderId,
-                  bookingId: pujaOrder.bookingId,
-                  userId: pujaOrder.userId,
-                  totalAmount,
-                  payableAmount,
-                  discountRecorded: discountAmount,
-                  cashbackCredited: cashbackAmount,
-                  couponId,
-                  couponCode,
                 });
 
                 // Prevent this PUJA payment from falling through to recharge logic.
