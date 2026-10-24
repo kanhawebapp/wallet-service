@@ -553,18 +553,6 @@ async function startConsumer() {
                * =================================================
                * SERVICE PAYMENT
                * =================================================
-               */
-
-              /**
-               * =================================================
-               * SERVICE PAYMENT
-               * =================================================
-               */
-
-              /**
-               * =================================================
-               * SERVICE PAYMENT
-               * =================================================
                *
                * Handles:
                * 1. Service payment verification
@@ -575,6 +563,7 @@ async function startConsumer() {
                * 6. Cashback credit
                * 7. Wallet CASHBACK transaction
                * 8. ServiceBooking status update
+               * 9. ServicesBankPaymentLog insert
                *
                * All operations run inside the existing Prisma
                * transaction.
@@ -1191,6 +1180,81 @@ async function startConsumer() {
 
                 /**
                  * =================================================
+                 * SERVICES BANK PAYMENT LOG (SERVICE)
+                 * =================================================
+                 *
+                 * Record the payment in the unified payment log.
+                 *
+                 * GST/PG figures are derived from the Razorpay
+                 * captured amount (payableAmount), matching the
+                 * recharge path.
+                 *
+                 * upsert on razorpayPaymentId keeps the consumer
+                 * idempotent if the same payment is redelivered.
+                 */
+
+                const serviceGst = calculateGST(
+                  payableAmount,
+                  data.state ?? null,
+                );
+
+                const servicePg = calculatePGCharges(payableAmount);
+
+                const serviceInvoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}-S`;
+
+                await tx.servicesBankPaymentLog.upsert({
+                  where: {
+                    razorpayPaymentId: data.paymentId,
+                  },
+                  update: {},
+                  create: {
+                    userId,
+                    serviceType: "SERVICE",
+                    serviceId: servicePaymentOrder.serviceId,
+                    bookingId: servicePaymentOrder.bookingId,
+
+                    amount: payableAmount,
+
+                    provider: "RAZORPAY",
+                    razorpayOrderId: orderId,
+                    razorpayPaymentId: data.paymentId,
+                    status: "SUCCESS",
+
+                    invoiceNo: serviceInvoiceNo,
+
+                    taxableAmount: serviceGst.taxableAmount,
+                    gstRate: serviceGst.gstRate,
+                    cgst: serviceGst.cgst,
+                    sgst: serviceGst.sgst,
+                    igst: serviceGst.igst,
+                    totalTax: serviceGst.totalTax,
+                    totalAmount: serviceGst.totalAmount,
+
+                    pgChargeRate: servicePg.pgChargeRate,
+                    pgCharge: servicePg.pgCharge,
+                    pgIgst: servicePg.pgIgst,
+                    pgTotal: servicePg.pgTotal,
+                    receivableAmount: servicePg.receivableAmount,
+
+                    country: data.country ?? null,
+                    state: data.state ?? null,
+                    city: data.city ?? null,
+                    platform: data.platform ?? null,
+
+                    couponId: couponId ?? null,
+                    discount: discount ?? 0,
+                    cashback: cashbackAmount ?? 0,
+                  },
+                });
+
+                console.log("SERVICE PAYMENT LOG CREATED:", {
+                  orderId,
+                  paymentId: data.paymentId,
+                  invoiceNo: serviceInvoiceNo,
+                });
+
+                /**
+                 * =================================================
                  * FINAL SERVICE PAYMENT LOG
                  * =================================================
                  */
@@ -1510,6 +1574,80 @@ async function startConsumer() {
                     paymentStatus: "SUCCESS",
                     bookingStatus: "COMPLETED",
                   },
+                });
+
+                /**
+                 * =================================================
+                 * SERVICES BANK PAYMENT LOG (PUJA)
+                 * =================================================
+                 *
+                 * pujaOrder does not expose country/state/city/
+                 * platform, so those come from the RabbitMQ
+                 * payload, same as the recharge path.
+                 *
+                 * couponId / discount / cashback are taken from
+                 * the claimed order so they match what was
+                 * actually applied.
+                 */
+
+                const pujaGst = calculateGST(
+                  payableAmount,
+                  data.state ?? null,
+                );
+
+                const pujaPg = calculatePGCharges(payableAmount);
+
+                const pujaInvoiceNo = `INV-${new Date().getFullYear()}-${Date.now()}-P`;
+
+                await tx.servicesBankPaymentLog.upsert({
+                  where: {
+                    razorpayPaymentId: data.paymentId,
+                  },
+                  update: {},
+                  create: {
+                    userId: pujaOrder.userId,
+                    serviceType: "PUJA",
+                    serviceId: pujaOrder.serviceId,
+                    bookingId: pujaOrder.bookingId,
+
+                    amount: payableAmount,
+
+                    provider: "RAZORPAY",
+                    razorpayOrderId: orderId,
+                    razorpayPaymentId: data.paymentId,
+                    status: "SUCCESS",
+
+                    invoiceNo: pujaInvoiceNo,
+
+                    taxableAmount: pujaGst.taxableAmount,
+                    gstRate: pujaGst.gstRate,
+                    cgst: pujaGst.cgst,
+                    sgst: pujaGst.sgst,
+                    igst: pujaGst.igst,
+                    totalTax: pujaGst.totalTax,
+                    totalAmount: pujaGst.totalAmount,
+
+                    pgChargeRate: pujaPg.pgChargeRate,
+                    pgCharge: pujaPg.pgCharge,
+                    pgIgst: pujaPg.pgIgst,
+                    pgTotal: pujaPg.pgTotal,
+                    receivableAmount: pujaPg.receivableAmount,
+
+                    country: data.country ?? null,
+                    state: data.state ?? null,
+                    city: data.city ?? null,
+                    platform: data.platform ?? null,
+
+                    couponId: couponId ?? null,
+                    discount: discountAmount ?? 0,
+                    cashback: cashbackAmount ?? 0,
+                  },
+                });
+
+                console.log("PUJA PAYMENT LOG CREATED:", {
+                  orderId,
+                  paymentId: data.paymentId,
+                  invoiceNo: pujaInvoiceNo,
                 });
 
                 console.log("PUJA PAYMENT PROCESSED SUCCESSFULLY:", {

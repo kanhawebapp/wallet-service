@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  //url      = env("DATABASE_URL")
+ // url      = env("DATABASE_URL")
 }
 
 enum Gender {
@@ -181,6 +181,7 @@ model User {
   couponRedemptions CouponRedemption[]
   pujaBookings PujaBooking[]
   pujaPaymentOrders PujaPaymentOrder[]
+  servicesBankPaymentLogs ServicesBankPaymentLog[]
 
   @@unique([countryCode, mobile])
 }
@@ -688,7 +689,8 @@ model RechargePack {
   paymentOrders PaymentOrder[]
   transactions  WalletTransaction[]
   coupons       Coupon[]            @relation("CouponToRechargePack")
- hideAfterFirstRecharge Boolean @default(false)
+  hideAfterFirstRecharge Boolean @default(false)
+  isFirstTimeOffer Boolean @default(false)
   @@index([isActive])
   @@index([price])
   @@index([coins])
@@ -1890,14 +1892,15 @@ sessionDate DateTime
 //-----------------puja tables-------------------
 //-----------------puja tables-------------------
 
+
 model PujaService {
-  id              String   @id @default(uuid())
+  id               String   @id @default(uuid())
 
   // Basic Information
-  title           String
-  slug            String   @unique
-  image           String
-  category        String?
+  title            String
+  slug             String   @unique
+  image            String
+  category         String?
 
   // Description
   shortDescription String?
@@ -1906,7 +1909,7 @@ model PujaService {
   howToPerform     String?  @db.Text
   packaging        String?  @db.Text
 
-  // Pricing
+  // Pricing (derived from the first sorted mantra option)
   price            Float
   mrp              Float?
   discount         Float?
@@ -1919,26 +1922,34 @@ model PujaService {
   mantraOptions    PujaMantraOption[]
   faqs             PujaFAQ[]
   reviews          PujaReview[]
+  bookings         PujaBooking[]
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
-  bookings PujaBooking[]
 
   @@index([category])
   @@index([createdAt])
 }
 
 model PujaMantraOption {
-  id        String      @id @default(uuid())
-  name      String
+  id            String      @id @default(uuid())
+  name          String
 
-  pujaId    String
-  puja      PujaService @relation(fields: [pujaId], references: [id], onDelete: Cascade)
+  // Individual mantra pricing
+  originalPrice Float
+  offerPrice    Float
+  sortOrder     Int         @default(0)
 
-  createdAt DateTime    @default(now())
+  // Relation
+  pujaId        String
+  puja          PujaService @relation(fields: [pujaId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime    @default(now())
 
   @@index([pujaId])
+  @@index([pujaId, sortOrder])
 }
+
 
 model PujaFAQ {
   id        String      @id @default(uuid())
@@ -2033,6 +2044,7 @@ model PujaPaymentOrder {
 
   status PaymentOrderStatus @default(CREATED)
   couponRedemptions CouponRedemption[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2040,4 +2052,52 @@ model PujaPaymentOrder {
   @@index([bookingId])
   @@index([status])
   @@index([couponId])
+}
+
+
+enum BankPaymentServiceType {
+  PUJA
+  HEALING
+}
+
+model ServicesBankPaymentLog {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields: [userId], references: [id])
+  serviceType BankPaymentServiceType
+  serviceId String
+  bookingId String?
+  amount Float
+  provider PaymentProvider
+  razorpayOrderId String
+  razorpayPaymentId String? @unique
+  status PaymentStatus
+  invoiceNo String? @unique
+  taxableAmount Float?
+  gstRate Float?
+  cgst Float?
+  sgst Float?
+  igst Float?
+  totalTax Float?
+  totalAmount Float?
+  pgChargeRate Float?
+  pgCharge Float?
+  pgIgst Float?
+  pgTotal Float?
+  receivableAmount Float?
+  country String?
+  state String?
+  city String?
+  platform String?
+  couponId String?
+  discount Float? @default(0)
+  cashback Float? @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+  @@index([serviceType, serviceId])
+  @@index([bookingId])
+  @@index([razorpayOrderId])
+  @@index([status])
+  @@index([createdAt])
 }
