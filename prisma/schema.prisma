@@ -617,6 +617,7 @@ model Gift {
   image         String?
   status        String        @default("active")
   giftHistories GiftHistory[]
+  liveGiftTransactions LiveGiftTransaction[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
@@ -1611,17 +1612,7 @@ enum LiveStatus {
   ENDED
 }
 
-model LiveGift {
-  id        String   @id @default(uuid())
-  name      String
-  icon      String
-  price     Int
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
-  transactions LiveGiftTransaction[]
-}
 
 model LiveGiftTransaction {
   id           String   @id @default(uuid())
@@ -1635,8 +1626,8 @@ model LiveGiftTransaction {
 
   status    String   @default("SUCCESS")
   createdAt DateTime @default(now())
-
-  gift LiveGift @relation(fields: [giftId], references: [id])
+  
+  gift   Gift   @relation(fields: [giftId], references: [id])
 
   @@index([streamId, createdAt])
   @@index([senderId, createdAt])

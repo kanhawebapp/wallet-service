@@ -1017,7 +1017,7 @@ async function startConsumer() {
                       type: "CASHBACK",
                       coins: cashbackAmount,
                       amount: 0,
-                      description: `Service cashback (${couponCode ?? couponId})`,
+                      description: `Service cashback (${couponCode})`,
                     },
                   });
 
@@ -1468,7 +1468,7 @@ async function startConsumer() {
                         type: "CASHBACK",
                         coins: cashbackAmount,
                         amount: 0,
-                        description: `Puja cashback (${couponCode ?? couponId}) - Order ${orderId}`,
+                        description: `Puja cashback (${couponCode}) `,
                         updatedBalance: updatedWallet.balanceCoins,
                       },
                     });
@@ -1489,7 +1489,7 @@ async function startConsumer() {
                    * It does not credit or deduct wallet coins.
                    */
                   if (discountAmount > 0) {
-                    const discountDescription = `Puja discount (${couponCode ?? couponId}) - Order ${orderId}`;
+                    const discountDescription = `Puja discount (${couponCode})`;
 
                     // Prevent duplicate discount entries for this order.
                     const existingDiscountTransaction =
@@ -2012,7 +2012,7 @@ async function startConsumer() {
 
                       amount: 0,
 
-                      description: `Cashback (${data.couponCode || "Coupon"})`,
+                      description: `Cashback (${data.couponCode})`,
                     },
                   });
 
@@ -2057,7 +2057,7 @@ async function startConsumer() {
 
                       amount: 0,
 
-                      description: `Discount Applied (${data.couponCode || "Coupon"})`,
+                      description: `Discount Applied (${data.couponCode })`,
                     },
                   });
 
